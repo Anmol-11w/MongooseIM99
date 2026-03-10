@@ -153,7 +153,6 @@ jobs:
         uses: coverallsapp/github-action@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          repo-token: ${{ secrets.COVERALLS_REPO_TOKEN }}
           flag-name: small_tests on OTP ${{ matrix.otp }}
           path-to-lcov: ./lcov.info
           parallel: true
@@ -210,7 +209,6 @@ jobs:
           otp: ${{ matrix.otp }}
           preset: ${{ matrix.preset }}
           gh-token: ${{ secrets.GITHUB_TOKEN }}
-          coveralls-token: ${{ secrets.COVERALLS_REPO_TOKEN }}
           test-spec: ${{ matrix.test-spec }}
 
       - name: upload test logs on failure
@@ -264,7 +262,6 @@ jobs:
           otp: ${{ matrix.otp }}
           preset: ${{ matrix.preset }}
           gh-token: ${{ secrets.GITHUB_TOKEN }}
-          coveralls-token: ${{ secrets.COVERALLS_REPO_TOKEN }}
           test-spec: ${{ matrix.test-spec }}
 
       - name: upload test logs on failure
@@ -388,39 +385,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check GPG signing keys
-        id: gpg-check
+      - name: Check GPG secrets are configured
+        id: gpg
         run: |
           if [ -z "$GPG_PUBLIC_KEY" ] || [ -z "$GPG_PRIVATE_KEY" ] || [ -z "$GPG_PASS" ]; then
-            echo "::warning::GPG signing secrets (GPG_PUBLIC_KEY, GPG_PRIVATE_KEY, GPG_PASS) are not configured."
-            echo "::warning::Package will be built but NOT signed. Add these secrets under Settings → Secrets → Actions."
-            echo "signing=false" >> $GITHUB_OUTPUT
+            echo "GPG signing secrets not configured - skipping package build."
+            echo "Add GPG_PUBLIC_KEY, GPG_PRIVATE_KEY and GPG_PASS under Settings → Secrets → Actions."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "signing=true" >> $GITHUB_OUTPUT
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build package (without signing)
-        if: steps.gpg-check.outputs.signing == 'false'
-        env:
-          GPG_PUBLIC_KEY: ""
-          GPG_PRIVATE_KEY: ""
-          GPG_PASS: ""
-          SKIP_PKG_SIGN: "1"
-        run: tools/test.sh -p pkg
-        continue-on-error: true
-
       - name: Build and sign package
-        if: steps.gpg-check.outputs.signing == 'true'
+        if: steps.gpg.outputs.skip == 'false'
         run: tools/test.sh -p pkg
 
       - name: Upload built package artifact
-        if: always()
+        if: steps.gpg.outputs.skip == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: mongooseim-${{ matrix.pkg }}-package
-          path: |
-            **/*.deb
-            **/*.rpm
+          path: "*.deb"
           if-no-files-found: warn
           retention-days: 30
 

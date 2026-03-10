@@ -13,11 +13,6 @@ inputs:
       description: "GH token (required for coveralls action)"
       required: true
       type: string
-    coveralls-token:
-      description: "Coveralls repo token (COVERALLS_REPO_TOKEN secret)"
-      required: false
-      default: ""
-      type: string
     test-spec:
       description: "test spec"
       required: false
@@ -63,7 +58,6 @@ runs:
       uses: coverallsapp/github-action@v2
       with:
         github-token: ${{ inputs.gh-token }}
-        repo-token: ${{ inputs.coveralls-token }}
         flag-name: "${{inputs.preset}} (${{inputs.test-spec}}) on OTP ${{inputs.otp}}"
         path-to-lcov: ./lcov.info
         parallel: true
