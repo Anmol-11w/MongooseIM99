@@ -35,15 +35,22 @@ jobs:
         id: changed
         run: |
           BASE=${GITHUB_BASE_REF:-main}
-          git fetch origin $BASE --depth=1 2>/dev/null || true
-          FILES=$(git diff --name-only origin/$BASE...HEAD -- '*.erl' '*.hrl' '*.config' '*.ex' 2>/dev/null | head -60)
+          git fetch origin "$BASE" --depth=1 2>/dev/null || true
+          FILES=$(git diff --name-only "origin/$BASE...HEAD" -- '*.erl' '*.hrl' '*.config' '*.ex' 2>/dev/null | head -60)
           if [ -z "$FILES" ]; then
             FILES=$(git diff --name-only HEAD~1 HEAD -- '*.erl' '*.hrl' '*.config' 2>/dev/null | head -60)
           fi
-          echo "files<<EOF" >> $GITHUB_OUTPUT
-          echo "$FILES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "count=$(echo "$FILES" | grep -c '.' || echo 0)" >> $GITHUB_OUTPUT
+          {
+            echo 'files<<__DELIM__'
+            echo "$FILES"
+            echo '__DELIM__'
+          } >> "$GITHUB_OUTPUT"
+          if [ -n "$FILES" ]; then
+            FILE_COUNT=$(echo "$FILES" | wc -l | tr -d ' ')
+          else
+            FILE_COUNT=0
+          fi
+          echo "count=$FILE_COUNT" >> "$GITHUB_OUTPUT"
 
       - name: Build diff payload for Claude
         id: diff
