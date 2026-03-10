@@ -13,6 +13,11 @@ inputs:
       description: "GH token (required for coveralls action)"
       required: true
       type: string
+    coveralls-token:
+      description: "Coveralls repo token (COVERALLS_REPO_TOKEN secret)"
+      required: false
+      default: ""
+      type: string
     test-spec:
       description: "test spec"
       required: false
@@ -24,7 +29,8 @@ runs:
     - uses: erlef/setup-beam@v1
       with:
         otp-version: ${{inputs.otp}}
-    - uses: actions/cache@v3
+        version-type: strict
+    - uses: actions/cache@v4
       with:
         path: ~/.cache/rebar3
         key: rebar3-${{ hashFiles('rebar.lock') }}
@@ -53,9 +59,11 @@ runs:
       shell: bash
       run: ./rebar3 codecov analyze --lcov --json false
     - name: report coverage
+      continue-on-error: true
       uses: coverallsapp/github-action@v2
       with:
         github-token: ${{ inputs.gh-token }}
+        repo-token: ${{ inputs.coveralls-token }}
         flag-name: "${{inputs.preset}} (${{inputs.test-spec}}) on OTP ${{inputs.otp}}"
         path-to-lcov: ./lcov.info
         parallel: true

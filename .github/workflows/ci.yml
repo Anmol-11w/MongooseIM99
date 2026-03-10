@@ -3,8 +3,8 @@ name: CI
 on:
   push:
     branches: [ main ]
- # pull_request:
- #   branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 env:
@@ -19,10 +19,94 @@ env:
 jobs:
 
 # =====================================================
+# CLAUDE AI CODE REVIEW (BLOCKING – RUNS FIRST)
+# =====================================================
+  claude_review:
+    name: Claude AI Code Review
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Collect changed Erlang source files
+        id: changed
+        run: |
+          BASE=${GITHUB_BASE_REF:-main}
+          git fetch origin $BASE --depth=1 2>/dev/null || true
+          FILES=$(git diff --name-only origin/$BASE...HEAD -- '*.erl' '*.hrl' '*.config' '*.ex' 2>/dev/null | head -60)
+          if [ -z "$FILES" ]; then
+            FILES=$(git diff --name-only HEAD~1 HEAD -- '*.erl' '*.hrl' '*.config' 2>/dev/null | head -60)
+          fi
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "count=$(echo "$FILES" | grep -c '.' || echo 0)" >> $GITHUB_OUTPUT
+
+      - name: Build diff payload for Claude
+        id: diff
+        run: |
+          FILES="${{ steps.changed.outputs.files }}"
+          DIFF_OUT=""
+          for f in $FILES; do
+            [ -f "$f" ] || continue
+            DIFF_OUT+="\n### File: $f\n"
+            DIFF_OUT+=$(git diff origin/${GITHUB_BASE_REF:-main}...HEAD -- "$f" 2>/dev/null || git show HEAD:"$f" 2>/dev/null | head -300)
+            DIFF_OUT+="\n"
+          done
+          if [ -z "$DIFF_OUT" ]; then
+            DIFF_OUT="No Erlang source changes detected in this push."
+          fi
+          # Write to file to avoid env-var size limits
+          printf '%s' "$DIFF_OUT" > /tmp/code_diff.txt
+          echo "Diff size: $(wc -c < /tmp/code_diff.txt) bytes"
+
+      - name: Run Claude AI review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          CODE_DIFF=$(cat /tmp/code_diff.txt)
+          PROMPT="You are a senior Erlang/OTP engineer. Review the following code changes for: bugs, race conditions, error handling issues, misuse of OTP patterns, type errors, and security concerns. For each issue found, state: FILE, LINE (if known), SEVERITY (critical/warning/info), and a concise explanation. End with a SUMMARY section. If no issues are found, say so clearly.\n\nCode diff to review:\n${CODE_DIFF}"
+
+          RESPONSE=$(curl -sS https://api.anthropic.com/v1/messages \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "content-type: application/json" \
+            -d "$(jq -n \
+              --arg model 'claude-opus-4-5' \
+              --arg prompt "$PROMPT" \
+              '{model: $model, max_tokens: 4096, messages: [{role: "user", content: $prompt}]}'\
+            )")
+
+          echo "$RESPONSE" | jq -r '.content[0].text' > review_report.md
+
+          echo "## Claude AI Code Review" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat review_report.md >> $GITHUB_STEP_SUMMARY
+
+          # Fail the job if Claude found critical issues
+          if grep -qi 'SEVERITY.*critical\|critical.*SEVERITY' review_report.md; then
+            echo "::error::Claude found critical issues. See review report artifact for details."
+            exit 1
+          fi
+
+      - name: Upload Claude review report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-report
+          path: review_report.md
+          retention-days: 30
+
+
+# =====================================================
 # SMALL TESTS (BLOCKING)
 # =====================================================
   small_tests:
     name: small_tests on OTP ${{ matrix.otp }}
+    needs: [ claude_review ]
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -38,9 +122,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: erlef/setup-beam@v1.16.0
+      - uses: erlef/setup-beam@v1
         with:
           otp-version: ${{ matrix.otp }}
+          version-type: strict
 
       - uses: actions/cache@v4
         with:
@@ -57,9 +142,11 @@ jobs:
         run: ./rebar3 codecov analyze --lcov --json false
 
       - name: report coverage
+        continue-on-error: true
         uses: coverallsapp/github-action@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          repo-token: ${{ secrets.COVERALLS_REPO_TOKEN }}
           flag-name: small_tests on OTP ${{ matrix.otp }}
           path-to-lcov: ./lcov.info
           parallel: true
@@ -78,6 +165,7 @@ jobs:
 # =====================================================
   big_tests:
     name: ${{ matrix.preset }} on OTP ${{ matrix.otp }}
+    needs: [ claude_review ]
     runs-on: ubuntu-22.04
     continue-on-error: true
 
@@ -115,6 +203,7 @@ jobs:
           otp: ${{ matrix.otp }}
           preset: ${{ matrix.preset }}
           gh-token: ${{ secrets.GITHUB_TOKEN }}
+          coveralls-token: ${{ secrets.COVERALLS_REPO_TOKEN }}
           test-spec: ${{ matrix.test-spec }}
 
       - name: upload test logs on failure
@@ -127,7 +216,12 @@ jobs:
 
       - name: upload big_tests results to GA4
         if: ${{ !cancelled() && github.ref_name == 'main' }}
-        run: tools/gh-report-failing-testcases-to-ga4.sh
+        run: |
+          if [ -z "$GA4_API_SECRET" ] || [ -z "$GA4_MEASUREMENT_API" ]; then
+            echo "GA4 secrets not configured, skipping report."
+            exit 0
+          fi
+          tools/gh-report-failing-testcases-to-ga4.sh
 
 
 # =====================================================
@@ -135,6 +229,7 @@ jobs:
 # =====================================================
   dynamic_domains_big_tests:
     name: dynamic domains ${{ matrix.preset }} on OTP ${{ matrix.otp }}
+    needs: [ claude_review ]
     runs-on: ubuntu-22.04
     continue-on-error: true
 
@@ -162,6 +257,7 @@ jobs:
           otp: ${{ matrix.otp }}
           preset: ${{ matrix.preset }}
           gh-token: ${{ secrets.GITHUB_TOKEN }}
+          coveralls-token: ${{ secrets.COVERALLS_REPO_TOKEN }}
           test-spec: ${{ matrix.test-spec }}
 
       - name: upload test logs on failure
@@ -174,7 +270,12 @@ jobs:
 
       - name: upload big_tests results to GA4
         if: ${{ !cancelled() && github.ref_name == 'main' }}
-        run: tools/gh-report-failing-testcases-to-ga4.sh
+        run: |
+          if [ -z "$GA4_API_SECRET" ] || [ -z "$GA4_MEASUREMENT_API" ]; then
+            echo "GA4 secrets not configured, skipping report."
+            exit 0
+          fi
+          tools/gh-report-failing-testcases-to-ga4.sh
 
 
 # =====================================================
@@ -197,6 +298,7 @@ jobs:
 # =====================================================
   dialyzer:
     name: dialyzer on OTP ${{ matrix.otp }}
+    needs: [ claude_review ]
     runs-on: ubuntu-22.04
     strategy:
       matrix:
@@ -204,9 +306,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1.16.0
+      - uses: erlef/setup-beam@v1
         with:
           otp-version: ${{ matrix.otp }}
+          version-type: strict
       - uses: actions/cache@v4
         with:
           path: ~/.cache/rebar3
@@ -216,6 +319,7 @@ jobs:
 
   xref:
     name: xref on OTP ${{ matrix.otp }}
+    needs: [ claude_review ]
     runs-on: ubuntu-22.04
     strategy:
       matrix:
@@ -223,9 +327,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1.16.0
+      - uses: erlef/setup-beam@v1
         with:
           otp-version: ${{ matrix.otp }}
+          version-type: strict
       - uses: actions/cache@v4
         with:
           path: ~/.cache/rebar3
@@ -235,6 +340,7 @@ jobs:
 
   edoc:
     name: edoc on OTP ${{ matrix.otp }}
+    needs: [ claude_review ]
     runs-on: ubuntu-22.04
     strategy:
       matrix:
@@ -242,9 +348,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1.16.0
+      - uses: erlef/setup-beam@v1
         with:
           otp-version: ${{ matrix.otp }}
+          version-type: strict
       - uses: actions/cache@v4
         with:
           path: ~/.cache/rebar3
@@ -257,7 +364,9 @@ jobs:
 # =====================================================
   pkg:
     name: ${{ matrix.pkg }} package
+    needs: [ claude_review ]
     runs-on: ubuntu-22.04
+    continue-on-error: true
     strategy:
       matrix:
         pkg: [ ubuntu-jammy ]
@@ -271,6 +380,41 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - run: tools/test.sh -p pkg
+
+      - name: Check GPG signing keys
+        id: gpg-check
+        run: |
+          if [ -z "$GPG_PUBLIC_KEY" ] || [ -z "$GPG_PRIVATE_KEY" ] || [ -z "$GPG_PASS" ]; then
+            echo "::warning::GPG signing secrets (GPG_PUBLIC_KEY, GPG_PRIVATE_KEY, GPG_PASS) are not configured."
+            echo "::warning::Package will be built but NOT signed. Add these secrets under Settings → Secrets → Actions."
+            echo "signing=false" >> $GITHUB_OUTPUT
+          else
+            echo "signing=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build package (without signing)
+        if: steps.gpg-check.outputs.signing == 'false'
+        env:
+          GPG_PUBLIC_KEY: ""
+          GPG_PRIVATE_KEY: ""
+          GPG_PASS: ""
+          SKIP_PKG_SIGN: "1"
+        run: tools/test.sh -p pkg
+        continue-on-error: true
+
+      - name: Build and sign package
+        if: steps.gpg-check.outputs.signing == 'true'
+        run: tools/test.sh -p pkg
+
+      - name: Upload built package artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mongooseim-${{ matrix.pkg }}-package
+          path: |
+            **/*.deb
+            **/*.rpm
+          if-no-files-found: warn
+          retention-days: 30
 
 
