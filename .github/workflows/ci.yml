@@ -3,17 +3,14 @@ name: CI
 on:
   push:
     branches: [ main ]
+ # pull_request:
+ #   branches: [ main ]
   workflow_dispatch:
 
 env:
   # required for run_common_test.erl
   KEEP_COVER_RUNNING: '1'
   SKIP_AUTO_COMPILE: 'true'
-
-  # required for tools/gh-upload-to-s3.sh script
-  AWS_DEFAULT_REGION: "${{ secrets.AWS_DEFAULT_REGION }}"
-  AWS_ACCESS_KEY_ID: "${{ secrets.AWS_ACCESS_KEY_ID }}"
-  AWS_SECRET_ACCESS_KEY: "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
 
   # required for tools/gh-report-failing-testcases-to-ga4.sh script
   GA4_API_SECRET: "${{ secrets.GA4_API_SECRET }}"
@@ -36,7 +33,7 @@ jobs:
       PRESET: 'small_tests'
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -45,7 +42,7 @@ jobs:
         with:
           otp-version: ${{ matrix.otp }}
 
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: ~/.cache/rebar3
           key: rebar3-${{ hashFiles('rebar.lock') }}
@@ -67,9 +64,13 @@ jobs:
           path-to-lcov: ./lcov.info
           parallel: true
 
-      - name: upload common test results on failure
+      - name: upload test logs on failure
         if: failure()
-        run: tools/gh-upload-to-s3.sh _build/test/logs test_logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: small-test-logs-otp-${{ matrix.otp }}
+          path: _build/test/logs
+          retention-days: 7
 
 
 # =====================================================
@@ -102,7 +103,7 @@ jobs:
             test-spec: "default.spec"
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -116,12 +117,16 @@ jobs:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           test-spec: ${{ matrix.test-spec }}
 
-      - name: upload common test results on failure
+      - name: upload test logs on failure
         if: failure()
-        run: tools/gh-upload-to-s3.sh big_tests/ct_report
+        uses: actions/upload-artifact@v4
+        with:
+          name: big-test-logs-${{ matrix.preset }}-otp-${{ matrix.otp }}
+          path: big_tests/ct_report
+          retention-days: 7
 
       - name: upload big_tests results to GA4
-        if: ${{ !cancelled() && github.ref_name == 'master' }}
+        if: ${{ !cancelled() && github.ref_name == 'main' }}
         run: tools/gh-report-failing-testcases-to-ga4.sh
 
 
@@ -145,7 +150,7 @@ jobs:
             test-spec: "dynamic_domains.spec"
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -159,12 +164,16 @@ jobs:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           test-spec: ${{ matrix.test-spec }}
 
-      - name: upload common test results on failure
+      - name: upload test logs on failure
         if: failure()
-        run: tools/gh-upload-to-s3.sh big_tests/ct_report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dynamic-domain-test-logs-${{ matrix.preset }}-otp-${{ matrix.otp }}
+          path: big_tests/ct_report
+          retention-days: 7
 
       - name: upload big_tests results to GA4
-        if: ${{ !cancelled() && github.ref_name == 'master' }}
+        if: ${{ !cancelled() && github.ref_name == 'main' }}
         run: tools/gh-report-failing-testcases-to-ga4.sh
 
 
@@ -173,6 +182,7 @@ jobs:
 # =====================================================
   coveralls_webhook:
     needs: [ small_tests, big_tests, dynamic_domains_big_tests ]
+    if: always()
     runs-on: ubuntu-22.04
     steps:
       - name: Finish coveralls parallel build
@@ -193,10 +203,14 @@ jobs:
         otp: [ '27.3.4.2' ]
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1.16.0
         with:
           otp-version: ${{ matrix.otp }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/rebar3
+          key: rebar3-${{ hashFiles('rebar.lock') }}
       - run: tools/test.sh -p dialyzer_only
 
 
@@ -208,10 +222,14 @@ jobs:
         otp: [ '27.3.4.2' ]
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1.16.0
         with:
           otp-version: ${{ matrix.otp }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/rebar3
+          key: rebar3-${{ hashFiles('rebar.lock') }}
       - run: tools/test.sh -p xref_only
 
 
@@ -223,10 +241,14 @@ jobs:
         otp: [ '27.3.4.2' ]
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1.16.0
         with:
           otp-version: ${{ matrix.otp }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/rebar3
+          key: rebar3-${{ hashFiles('rebar.lock') }}
       - run: tools/test.sh -p edoc_only
 
 
@@ -248,7 +270,7 @@ jobs:
       GPG_PASS: ${{ secrets.GPG_PASS }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: tools/test.sh -p pkg
 
 
