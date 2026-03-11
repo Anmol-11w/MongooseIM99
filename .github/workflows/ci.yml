@@ -14,10 +14,6 @@ env:
   # AWS_ACCESS_KEY_ID: "${{ secrets.AWS_ACCESS_KEY_ID }}"
   # AWS_SECRET_ACCESS_KEY: "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
 
-  # required for tools/gh-report-failing-testcases-to-ga4.sh script
-  GA4_API_SECRET: "${{ secrets.GA4_API_SECRET }}"
-  GA4_MEASUREMENT_API: "${{ secrets.GA4_MEASUREMENT_API }}"
-
 jobs:
 
 # =====================================================
@@ -107,10 +103,6 @@ jobs:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           test-spec: ${{ matrix.test-spec }}
 
-      - name: upload big_tests results to GA4
-        if: ${{ !cancelled() && github.ref_name == 'master' }}
-        run: tools/gh-report-failing-testcases-to-ga4.sh
-
 
 # =====================================================
 # DYNAMIC DOMAIN BIG TESTS (NON-BLOCKING)
@@ -143,10 +135,6 @@ jobs:
           preset: ${{ matrix.preset }}
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           test-spec: ${{ matrix.test-spec }}
-
-      - name: upload big_tests results to GA4
-        if: ${{ !cancelled() && github.ref_name == 'master' }}
-        run: tools/gh-report-failing-testcases-to-ga4.sh
 
 
 # =====================================================
