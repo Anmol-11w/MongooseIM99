@@ -72,8 +72,6 @@ jobs:
   big_tests:
     name: ${{ matrix.preset }} on OTP ${{ matrix.otp }}
     runs-on: ubuntu-22.04
-    continue-on-error: true
-
     strategy:
       fail-fast: false
       matrix:
@@ -103,7 +101,6 @@ jobs:
 
       - name: Run big tests (non-blocking)
         uses: ./.github/actions/big-tests
-        continue-on-error: true
         with:
           otp: ${{ matrix.otp }}
           preset: ${{ matrix.preset }}
@@ -121,7 +118,6 @@ jobs:
   dynamic_domains_big_tests:
     name: dynamic domains ${{ matrix.preset }} on OTP ${{ matrix.otp }}
     runs-on: ubuntu-22.04
-    continue-on-error: true
 
     strategy:
       fail-fast: false
@@ -142,7 +138,6 @@ jobs:
 
       - name: Run dynamic big tests (non-blocking)
         uses: ./.github/actions/big-tests
-        continue-on-error: true
         with:
           otp: ${{ matrix.otp }}
           preset: ${{ matrix.preset }}
