@@ -6,7 +6,6 @@ on:
   workflow_dispatch:
 
 env:
-  # required for run_common_test.erl
   KEEP_COVER_RUNNING: '1'
   SKIP_AUTO_COMPILE: 'true'
 
