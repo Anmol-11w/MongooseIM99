@@ -1,5 +1,6 @@
 
 name: big_tests execution
+description: "Executes big tests with specified preset and OTP version"
 inputs:
     preset:
       description: "test preset"
