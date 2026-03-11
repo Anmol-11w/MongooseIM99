@@ -55,6 +55,16 @@ jobs:
       - name: run test
         run: tools/test.sh -p $PRESET -s true -e true
 
+      - name: prepare coverage report
+        run: ./rebar3 codecov analyze --lcov --json false
+
+      - name: upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-otp-${{ matrix.otp }}
+          path: lcov.info
+          retention-days: 30
+
 
 # =====================================================
 # BIG TESTS (NON-BLOCKING – INFORMATIVE ONLY)
