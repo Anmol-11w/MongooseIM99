@@ -23,6 +23,8 @@
 -ignore_xref([pmap/3]).
 
 -export([is_exported/3]).
+%% Shell glob to POSIX regexp conversion (replaces removed xmerl_regexp:sh_to_awk/1)
+-export([glob_to_re/1]).
 
 -include("mongoose.hrl").
 -include("jlib.hrl").
@@ -228,3 +230,34 @@ cancel_and_flush_timer(TimerRef) ->
 is_exported(Module, Function, Arity) ->
     code:ensure_loaded(Module),
     erlang:function_exported(Module, Function, Arity).
+
+%% @doc Convert a shell glob pattern (string) to an anchored POSIX regexp string
+%% suitable for use with re:run/3. This replaces the removed xmerl_regexp:sh_to_awk/1.
+-spec glob_to_re(string()) -> string().
+glob_to_re(Glob) ->
+    "^" ++ glob_to_re_chars(Glob) ++ "$".
+
+-spec glob_to_re_chars(string()) -> string().
+glob_to_re_chars([]) -> [];
+glob_to_re_chars([$* | Rest]) -> ".*" ++ glob_to_re_chars(Rest);
+glob_to_re_chars([$? | Rest]) -> "." ++ glob_to_re_chars(Rest);
+glob_to_re_chars([$[ | Rest]) ->
+    {Class, Rest2} = glob_collect_class(Rest),
+    "[" ++ Class ++ glob_to_re_chars(Rest2);
+glob_to_re_chars([C | Rest]) ->
+    glob_escape_char(C) ++ glob_to_re_chars(Rest).
+
+-spec glob_escape_char(char()) -> string().
+glob_escape_char(C) ->
+    case lists:member(C, ".+^${}()|[]\\") of
+        true -> [$\\, C];
+        false -> [C]
+    end.
+
+%% Collect characters inside [...] preserving the bracket class as-is.
+-spec glob_collect_class(string()) -> {string(), string()}.
+glob_collect_class([$] | Rest]) -> {"]", Rest};
+glob_collect_class([C | Rest]) ->
+    {Class, Rest2} = glob_collect_class(Rest),
+    {[C | Class], Rest2};
+glob_collect_class([]) -> {"", []}.
