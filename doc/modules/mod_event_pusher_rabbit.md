@@ -68,7 +68,7 @@ Defines RabbitMQ chat message exchange name.
 
 Defines RabbitMQ chat message exchange type.
 
-### `modules.mod_event_pusher.rabbit.presence_exchange.durable`
+### `modules.mod_event_pusher.rabbit.chat_msg_exchange.durable`
 * **Syntax:** boolean
 * **Default:** `false`
 * **Example:** `durable = true`
@@ -108,7 +108,7 @@ Defines RabbitMQ group chat message exchange name.
 
 Defines RabbitMQ group chat message exchange type.
 
-### `modules.mod_event_pusher.rabbit.presence_exchange.durable`
+### `modules.mod_event_pusher.rabbit.groupchat_msg_exchange.durable`
 * **Syntax:** boolean
 * **Default:** `false`
 * **Example:** `durable = true`
@@ -208,7 +208,7 @@ and for "received" events:
 
 ## Additional metadata
 
-If you decide to [customize the events](mod_event_pusher.md#event-customization) with additional metadata, the additional key-value pairs will be added directly to the JSON object. You can override existing properties, but it is counter-intuitive and thus not recommended.
+If you decide to [customize the events](mod_event_pusher.md#custom-event-processing) with additional metadata, the additional key-value pairs will be added directly to the JSON object. You can override existing properties, but it is counter-intuitive and thus not recommended.
 
 ## Metrics
 

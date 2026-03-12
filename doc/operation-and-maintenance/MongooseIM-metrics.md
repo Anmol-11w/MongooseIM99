@@ -10,13 +10,13 @@ In the default configuration file, Prometheus metrics are enabled, and available
 
 All metrics are divided into the following groups:
 
-* [Per host type metrics](#per-host-type-metrics): Gathered separately for every host type supported by the cluster.
+* Per host type metrics: Gathered separately for every host type supported by the cluster.
 
     !!! Warning
         If a cluster supports many (thousands or more) host types, performance issues might occur.
         To avoid this, when using Exometer, use global equivalents of the metrics with [`all_metrics_are_global` config option](../configuration/instrumentation.md#instrumentationexometerall_metrics_are_global).
 
-* [Global metrics](#global-metrics): Metrics common for all host types.
+* Global metrics: Metrics common for all host types.
     * Data metrics.
     These are misc. metrics related to data transfers (e.g. sent and received stanza size statistics).
     * VM metrics. Basic Erlang VM statistics.
@@ -50,16 +50,17 @@ All metrics are divided into the following groups:
 
     <h3>`histogram`</h3>
 
-    A histogram collects values and groups them in buckets.
+    A histogram collects values over a 60-second sliding window and exposes the number of observations and their sum (as counters), along with the 50th, 75th, 90th, 95th, 99th, and 99.9th percentiles with 1% accuracy.
 
     **Example:**
         ```
-        # TYPE xmpp_element_in_byte_size histogram
+        # TYPE xmpp_element_in_byte_size summary
         # HELP xmpp_element_in_byte_size Event: xmpp_element_in, Metric: byte_size
-        xmpp_element_in_byte_size_bucket{connection_type="c2s",host_type="localhost",le="1"} 0
+        xmpp_element_in_byte_size_count{connection_type="c2s",host_type="localhost"} 0
+        xmpp_element_in_byte_size_sum{connection_type="c2s",host_type="localhost"} 0
+        xmpp_element_in_byte_size{connection_type="c2s",host_type="localhost",quantile="0.5"} 0
         ...
-        xmpp_element_in_byte_size_bucket{connection_type="c2s",host_type="localhost",le="1073741824"} 0
-        xmpp_element_in_byte_size_bucket{connection_type="c2s",host_type="localhost",le="+Inf"} 0
+        xmpp_element_in_byte_size{connection_type="c2s",host_type="localhost",quantile="0.999"} 0
         ```
 
 === "Exometer"
@@ -335,10 +336,10 @@ Since Exometer doesn't support labels, `ConnType` is included in the metrics nam
     | `tcp_data_out_byte_size` | `connection_type` | counter | Amount of data sent to a client, another XMPP server or component via TCP channel. |
     | `tls_data_in_byte_size` | `connection_type` | counter | Amount of data received from a client, another XMPP server or component via TLS channel. |
     | `tls_data_out_byte_size` | `connection_type` | counter | Amount of data sent to a client, another XMPP server or component via TLS channel. |
-    | `mod_bosh_data_received_byte_size` | - | counter | Amount of data received from a client via BOSH connection. |
-    | `mod_bosh_data_sent_byte_size` | - | counter | Amount of data sent to a client via BOSH connection. |
-    | `mod_websocket_data_received_byte_size` | - | counter | Amount of data received from a client via WebSocket connection. |
-    | `mod_websocket_data_sent_byte_size` | - | counter | Amount of data sent to a client via WebSocket connection. |
+    | `bosh_data_received_byte_size` | - | counter | Amount of data received from a client via BOSH connection. |
+    | `bosh_data_sent_byte_size` | - | counter | Amount of data sent to a client via BOSH connection. |
+    | `websocket_data_received_byte_size` | - | counter | Amount of data received from a client via WebSocket connection. |
+    | `websocket_data_sent_byte_size` | - | counter | Amount of data sent to a client via WebSocket connection. |
 
 === "Exometer"
 
@@ -348,10 +349,10 @@ Since Exometer doesn't support labels, `ConnType` is included in the metrics nam
     | `[global, tcp_data_out, ConnType, byte_size]` | spiral | Amount of data sent to a client, another XMPP server or component via TCP channel. |
     | `[global, tls_data_in, ConnType, byte_size]` | spiral | Amount of data received from a client, another XMPP server or component via TLS channel. |
     | `[global, tls_data_out, ConnType, byte_size]` | spiral | Amount of data sent to a client, another XMPP server or component via TLS channel. |
-    | `[global, mod_bosh_data_received, byte_size]` | spiral | Amount of data received from a client via BOSH connection. |
-    | `[global, mod_bosh_data_sent, byte_size]` | spiral | Amount of data sent to a client via BOSH connection. |
-    | `[global, mod_websocket_data_received, byte_size]` | spiral | Amount of data received from a client via WebSocket connection. |
-    | `[global, mod_websocket_data_sent, byte_size]` | spiral | Amount of data sent to a client via WebSocket connection. |
+    | `[global, bosh_data_received, byte_size]` | spiral | Amount of data received from a client via BOSH connection. |
+    | `[global, bosh_data_sent, byte_size]` | spiral | Amount of data sent to a client via BOSH connection. |
+    | `[global, websocket_data_received, byte_size]` | spiral | Amount of data received from a client via WebSocket connection. |
+    | `[global, websocket_data_sent, byte_size]` | spiral | Amount of data sent to a client via WebSocket connection. |
 
 ### CETS system metrics
 

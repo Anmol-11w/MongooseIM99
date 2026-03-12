@@ -78,7 +78,6 @@ groups() ->
                             component_backend,
                             s2s_backend,
                             http_server_name,
-                            rdbms_server_type,
                             route_subdomains,
                             routing_modules,
                             replaced_wait_timeout,
@@ -94,11 +93,10 @@ groups() ->
                            listen_http,
                            listen_http_tls,
                            listen_http_transport,
+                           listen_http_protocol,
                            listen_http_handlers_invalid,
                            listen_http_handlers_bosh,
-                           listen_http_handlers_websockets,
-                           listen_http_handlers_client_api,
-                           listen_http_handlers_admin_api,
+                           listen_http_handlers_websocket,
                            listen_http_handlers_graphql]},
      {auth, [parallel], [auth_methods,
                          auth_password,
@@ -123,7 +121,6 @@ groups() ->
      {pool, [parallel], [pool_basics,
                          pool_scope,
                          pool_rdbms,
-                         pool_rdbms_connection_odbc,
                          pool_rdbms_connection_pgsql,
                          pool_rdbms_connection_cockroachdb,
                          pool_rdbms_connection_mysql,
@@ -145,11 +142,17 @@ groups() ->
                          pool_elastic_connection,
                          pool_rabbit,
                          pool_rabbit_connection,
+                         pool_rabbit_connection_reconnect,
                          pool_rabbit_connection_tls,
                          pool_ldap,
                          pool_ldap_connection,
                          pool_ldap_connection_tls]},
-     {internal_databases, [parallel], [internal_database_cets]},
+     {internal_databases, [parallel], [internal_database_cets,
+                                       module_backend_requires_internal_db,
+                                       global_backend_requires_internal_db,
+                                       service_backend_requires_internal_db,
+                                       auth_backend_requires_internal_db,
+                                       valid_backend_configuration]},
      {shaper_acl_access, [parallel], [shaper,
                                       acl,
                                       acl_merge_host_and_global,
@@ -174,12 +177,12 @@ groups() ->
                             mod_auth_token,
                             mod_fast_auth_token,
                             mod_blocking,
-                            mod_bosh,
                             mod_caps,
                             mod_cache_users,
                             mod_carboncopy,
                             mod_csi,
                             mod_disco,
+                            mod_external_filter,
                             mod_inbox,
                             mod_global_distrib,
                             mod_global_distrib_connections,
@@ -235,7 +238,8 @@ groups() ->
                             mod_version,
                             modules_without_config,
                             incorrect_module]},
-     {services, [parallel], [service_domain_db,
+     {services, [parallel], [service_bosh,
+                             service_domain_db,
                              service_mongoose_system_metrics]},
      {instrumentation, [parallel], [instrumentation,
                                     instrumentation_exometer,
@@ -401,14 +405,16 @@ language(_Config) ->
 sm_backend(_Config) ->
     ?cfg(sm_backend, mnesia, #{}), % default
     ?cfg(sm_backend, mnesia, #{<<"general">> => #{<<"sm_backend">> => <<"mnesia">>}}),
-    ?cfg(sm_backend, cets, #{<<"general">> => #{<<"sm_backend">> => <<"cets">>}}),
+    ?cfg(sm_backend, cets, #{<<"general">> => #{<<"sm_backend">> => <<"cets">>},
+                             <<"internal_databases">> => #{<<"cets">> => #{}, <<"mnesia">> => #{}}}),
     ?cfg(sm_backend, redis, #{<<"general">> => #{<<"sm_backend">> => <<"redis">>}}),
     ?err(#{<<"general">> => #{<<"sm_backend">> => <<"amnesia">>}}).
 
 component_backend(_Config) ->
     ?cfg(component_backend, mnesia, #{}), % default
     ?cfg(component_backend, mnesia, #{<<"general">> => #{<<"component_backend">> => <<"mnesia">>}}),
-    ?cfg(component_backend, cets, #{<<"general">> => #{<<"component_backend">> => <<"cets">>}}),
+    ?cfg(component_backend, cets, #{<<"general">> => #{<<"component_backend">> => <<"cets">>},
+                                      <<"internal_databases">> => #{<<"cets">> => #{}, <<"mnesia">> => #{}}}),
     ?err(#{<<"general">> => #{<<"component_backend">> => <<"amnesia">>}}).
 
 s2s_backend(_Config) ->
@@ -421,12 +427,6 @@ http_server_name(_Config) ->
     ?cfg(http_server_name, "my server",
          #{<<"general">> => #{<<"http_server_name">> => <<"my server">>}}),
     ?err(#{<<"general">> => #{<<"http_server_name">> => #{}}}).
-
-rdbms_server_type(_Config) ->
-    ?cfg(rdbms_server_type, generic, #{}), % default
-    ?cfg(rdbms_server_type, mssql, #{<<"general">> => #{<<"rdbms_server_type">> => <<"mssql">>}}),
-    ?cfg(rdbms_server_type, pgsql, #{<<"general">> => #{<<"rdbms_server_type">> => <<"pgsql">>}}),
-    ?err(#{<<"general">> => #{<<"rdbms_server_type">> => <<"nosql">>}}).
 
 route_subdomains(_Config) ->
     ?cfgh(route_subdomains, s2s, #{<<"general">> => #{<<"route_subdomains">> => <<"s2s">>}}),
@@ -487,7 +487,7 @@ listen_c2s_just_tls(_Config) ->
     P = [listen, 1, tls],
     M = tls_ca_raw(),
     ?cfg(P, maps:merge(default_xmpp_tls(), tls_ca()), T(M)),
-    test_just_tls_server(P, T),
+    test_just_tls_xmpp(P, T),
     ?cfg(P ++ [mode], tls, T(M#{<<"mode">> => <<"tls">>})),
     ?cfg(P ++ [disconnect_on_failure], false, T(M#{<<"disconnect_on_failure">> => false})),
     ?cfg(P ++ [crl_files], ["priv/cert.pem"], % note: this is not a real CRL file
@@ -514,7 +514,7 @@ listen_s2s_tls(_Config) ->
     P = [listen, 1, tls],
     M = tls_ca_raw(),
     ?cfg(P, maps:merge(default_xmpp_tls(), tls_ca()), T(M)),
-    test_just_tls_server(P, T).
+    test_just_tls_xmpp(P, T).
 
 listen_component(_Config) ->
     Defs = #{<<"port">> => 8888, <<"password">> => <<"secret">>},
@@ -543,7 +543,7 @@ listen_component_tls(_Config) ->
     P = [listen, 1, tls],
     M = tls_ca_raw(),
     ?cfg(P, maps:merge(config_parser_helper:default_xmpp_tls_tls(), tls_ca()), T(M)),
-    test_just_tls_server(P, T).
+    test_just_tls_xmpp(P, T).
 
 listen_http(_Config) ->
     T = fun(Opts) -> listen_raw(http, maps:merge(#{<<"port">> => 5280}, Opts)) end,
@@ -577,31 +577,16 @@ listen_http_handlers_invalid(_Config) ->
                                    <<"path">> => <<"/cutlery">>}]})).
 
 listen_http_handlers_bosh(_Config) ->
-    test_listen_http_handler(mod_bosh).
+    test_listen_http_handler(mongoose_bosh_handler).
 
-listen_http_handlers_websockets(_Config) ->
-    {P, T} = test_listen_http_handler(mod_websockets),
+listen_http_handlers_websocket(_Config) ->
+    {P, T} = test_listen_http_handler(mongoose_websocket_handler),
     ?cfg(P ++ [timeout], 30000, T(#{<<"timeout">> => 30000})),
     ?cfg(P ++ [ping_rate], 20, T(#{<<"ping_rate">> => 20})),
     ?cfg(P ++ [max_stanza_size], 10000, T(#{<<"max_stanza_size">> => 10000})),
     ?err(T(#{<<"timeout">> => -1})),
     ?err(T(#{<<"ping_rate">> => 0})),
     ?err(T(#{<<"max_stanza_size">> => 0})).
-
-listen_http_handlers_client_api(_Config) ->
-    {P, T} = test_listen_http_handler(mongoose_client_api),
-    ?cfg(P ++ [handlers], [messages],
-         T(#{<<"handlers">> => [<<"messages">>]})),
-    ?cfg(P ++ [docs], false, T(#{<<"docs">> => false})),
-    ?err(T(#{<<"handlers">> => [<<"invalid">>]})),
-    ?err(T(#{<<"docs">> => <<"maybe">>})).
-
-listen_http_handlers_admin_api(_Config) ->
-    {P, T} = test_listen_http_handler(mongoose_admin_api),
-    ?cfg(P ++ [handlers], [muc, inbox],
-         T(#{<<"handlers">> => [<<"muc">>, <<"inbox">>]})),
-    ?err(T(#{<<"handlers">> => [<<"invalid">>]})),
-    test_listen_http_handler_creds(P, T).
 
 listen_http_handlers_graphql(_Config) ->
     T = fun graphql_handler_raw/1,
@@ -905,16 +890,6 @@ pool_scope(_Config) ->
 pool_rdbms(_Config) ->
     test_pool_opts(rdbms, #{<<"connection">> => raw_sql_opts(pgsql)}).
 
-pool_rdbms_connection_odbc(_Config) ->
-    P = [outgoing_pools, 1, conn_opts],
-    Required = #{<<"driver">> => <<"odbc">>, <<"settings">> => <<"DSN=mydb">>},
-    T = fun(Opts) -> pool_conn_raw(<<"rdbms">>, Opts) end,
-    test_pool_rdbms_connection_common_opts(P, T, Required),
-    ?cfg(P, config([outgoing_pools, rdbms, default, conn_opts],
-                   #{driver => odbc, settings => "DSN=mydb"}), T(Required)),
-    ?err(T(Required#{<<"settings">> => true})),
-    [?err(T(maps:remove(K, Required))) || K <- maps:keys(Required)].
-
 pool_rdbms_connection_pgsql(_Config) ->
     P = [outgoing_pools, 1, conn_opts],
     T = fun(Opts) -> pool_conn_raw(<<"rdbms">>, Opts) end,
@@ -1105,14 +1080,21 @@ pool_rabbit_connection(_Config) ->
     ?cfg(P ++ [password], <<"pass">>, T(#{<<"password">> => <<"pass">>})),
     ?cfg(P ++ [virtual_host], <<"vh">>, T(#{<<"virtual_host">> => <<"vh">>})),
     ?cfg(P ++ [confirms_enabled], true, T(#{<<"confirms_enabled">> => true})),
-    ?cfg(P ++ [max_worker_queue_len], 100, T(#{<<"max_worker_queue_len">> => 100})),
     ?err(T(#{<<"host">> => <<>>})),
     ?err(T(#{<<"port">> => 123456})),
     ?err(T(#{<<"username">> => <<>>})),
     ?err(T(#{<<"password">> => <<>>})),
     ?err(T(#{<<"virtual_host">> => <<>>})),
-    ?err(T(#{<<"confirms_enabled">> => <<"yes">>})),
-    ?err(T(#{<<"max_worker_queue_len">> => -1})).
+    ?err(T(#{<<"confirms_enabled">> => <<"yes">>})).
+
+pool_rabbit_connection_reconnect(_Config) ->
+    P = [outgoing_pools, 1, conn_opts, reconnect],
+    T = fun(Opts) -> pool_conn_raw(<<"rabbit">>, #{<<"reconnect">> => Opts}) end,
+    ?cfg(P, default_config([outgoing_pools, rabbit, default, conn_opts, reconnect]), T(#{})),
+    ?cfg(P ++ [attempts], 5, T(#{<<"attempts">> => 5})),
+    ?cfg(P ++ [delay], 0, T(#{<<"delay">> => 0})),
+    ?err(T(#{<<"attempts">> => -1})),
+    ?err(T(#{<<"delay">> => <<"infinity">>})).
 
 pool_rabbit_connection_tls(_Config) ->
     P = [outgoing_pools, 1, conn_opts, tls],
@@ -1152,9 +1134,13 @@ test_pool_opts(Type, Required) ->
     ?cfg(P, default_config([outgoing_pools, Type, default, opts]), T(Required)),
     ?cfg(P ++ [workers], 11, T(Required#{<<"workers">> => 11})),
     ?cfg(P ++ [strategy], random_worker, T(Required#{<<"strategy">> => <<"random_worker">>})),
+    ?cfg(P ++ [max_worker_queue_len], 1000, T(Required#{<<"max_worker_queue_len">> => 1000})),
     ?cfg(P ++ [call_timeout], 999, T(Required#{<<"call_timeout">> => 999})),
     ?err(T(Required#{<<"workers">> => 0})),
     ?err(T(Required#{<<"strategy">> => <<"worst_worker">>})),
+    ?err(T(Required#{<<"max_worker_queue_len">> => -1})),
+    ?err(T(Required#{<<"strategy">> => <<"random_worker">>,
+                     <<"max_worker_queue_len">> => 1000})), % this opt is only for best_worker
     ?err(T(Required#{<<"call_timeout">> => 0})).
 
 test_just_tls_client(P, T) ->
@@ -1169,11 +1155,21 @@ test_just_tls_server(P, T) ->
     ?cfg(P ++ [dhfile], "priv/dh.pem", T(M#{<<"dhfile">> => <<"priv/dh.pem">>})),
     ?err(T(M#{<<"dhfile">> => <<"no_such_file.pem">>})).
 
+test_just_tls_xmpp(P, T) ->
+    test_just_tls_common(P, T),
+    M = tls_ca_raw(),
+    ?cfg(P ++ [dhfile], "priv/dh.pem", T(M#{<<"dhfile">> => <<"priv/dh.pem">>})),
+    ?cfg(P ++ [keep_secrets], true, T(M#{<<"keep_secrets">> => true})),
+    ?err(T(M#{<<"dhfile">> => <<"no_such_file.pem">>})),
+    ?err(T(M#{<<"keep_secrets">> => <<"sslkeylog.txt">>})).
+
 test_just_tls_common(P, T) ->
     ?cfg(P ++ [verify_mode], none, T(#{<<"verify_mode">> => <<"none">>})),
     M = tls_ca_raw(),
     ?cfg(P ++ [cacertfile], "priv/ca.pem", T(M)),
-    ?cfg(P ++ [certfile], "priv/cert.pem", T(M#{<<"certfile">> => <<"priv/cert.pem">>})),
+    %% Certfile with keyfile should work
+    ?cfg(P ++ [certfile], "priv/cert.pem", T(M#{<<"certfile">> => <<"priv/cert.pem">>,
+                                                <<"keyfile">> => <<"priv/dc1.pem">>})),
     ?cfg(P ++ [ciphers], "TLS_AES_256_GCM_SHA384",
          T(M#{<<"ciphers">> => <<"TLS_AES_256_GCM_SHA384">>})),
     ?cfg(P ++ [keyfile], "priv/dc1.pem", T(M#{<<"keyfile">> => <<"priv/dc1.pem">>})),
@@ -1181,12 +1177,15 @@ test_just_tls_common(P, T) ->
     ?cfg(P ++ [versions], ['tlsv1.2', 'tlsv1.3'],
          T(M#{<<"versions">> => [<<"tlsv1.2">>, <<"tlsv1.3">>]})),
     ?err(T(#{<<"verify_mode">> => <<"whatever">>})),
-    ?err(T(M#{<<"certfile">> => <<"no_such_file.pem">>})),
     ?err(T(M#{<<"cacertfile">> => <<"no_such_file.pem">>})),
     ?err(T(M#{<<"ciphers">> => [<<"TLS_AES_256_GCM_SHA384">>]})),
     ?err(T(M#{<<"keyfile">> => <<"no_such_file.pem">>})),
     ?err(T(M#{<<"password">> => false})),
-    ?err(T(M#{<<"versions">> => <<"tlsv1.2">>})).
+    ?err(T(M#{<<"versions">> => <<"tlsv1.2">>})),
+    %% Certfile without keyfile should fail (OTP 28.1+ requirement)
+    ?err(T(#{<<"certfile">> => <<"priv/cert.pem">>})),
+    ?err(T(M#{<<"certfile">> => <<"priv/cert.pem">>})),
+    ?err(T(M#{<<"certfile">> => <<"no_such_file.pem">>})).
 
 test_just_tls_client_sni(ParentP, ParentT) ->
     P = ParentP ++ [server_name_indication],
@@ -1208,18 +1207,21 @@ tls_ca_raw() ->
 %% tests: internal_databases
 
 internal_database_cets(_Config) ->
-    CetsEnabled = #{<<"internal_databases">> => #{<<"cets">> => #{}}},
-    CetsFile = #{<<"internal_databases">> => #{<<"cets">> =>
+    CetsEnabled = #{<<"internal_databases">> => #{<<"cets">> => #{}, <<"mnesia">> => #{}}},
+    CetsFile = #{<<"internal_databases">> => #{<<"mnesia">> => #{}, <<"cets">> =>
         #{<<"backend">> => <<"file">>, <<"node_list_file">> => <<"/dev/null">>}}},
     %% No internal_databases section means only mnesia
     ?cfg([internal_databases], #{mnesia => #{}}, #{}), % default
-    %% Empty internal_databases could be configured explicitly
-    ?cfg([internal_databases], #{}, #{<<"internal_databases">> => #{}}),
+    %% Empty internal_databases is invalid because default global backends require mnesia
+    ?err([#{reason := backend_requires_internal_database}],
+         #{<<"internal_databases">> => #{}}),
 
     ?cfg([internal_databases, cets, backend], file,
-         #{<<"internal_databases">> => #{<<"cets">> => #{<<"backend">> => <<"file">>}}}),
+         #{<<"internal_databases">> => #{<<"mnesia">> => #{},
+                                         <<"cets">> => #{<<"backend">> => <<"file">>}}}),
     ?cfg([internal_databases, cets, backend], rdbms,
-         #{<<"internal_databases">> => #{<<"cets">> => #{<<"cluster_name">> => <<"test">>}}}),
+         #{<<"internal_databases">> => #{<<"mnesia">> => #{},
+                                         <<"cets">> => #{<<"cluster_name">> => <<"test">>}}}),
 
     ?cfg([internal_databases, cets, cluster_name], mongooseim, CetsEnabled),
     ?cfg([internal_databases, cets, node_list_file], "/dev/null", CetsFile),
@@ -1228,6 +1230,39 @@ internal_database_cets(_Config) ->
          #{<<"internal_databases">> => #{<<"mnesia">> => #{}}}),
     ?err(#{<<"internal_databases">> => #{<<"cets">> => #{<<"backend">> => <<"mnesia">>}}}),
     ?err(#{<<"internal_databases">> => #{<<"cets">> => #{<<"cluster_name">> => 123}}}).
+
+module_backend_requires_internal_db(_Config) ->
+    %% mod_roster defaults to mnesia backend, which requires mnesia in internal_databases
+    Config = #{<<"internal_databases">> => #{<<"cets">> => #{}},
+               <<"general">> => #{<<"sm_backend">> => <<"cets">>,
+                                  <<"component_backend">> => <<"cets">>,
+                                  <<"s2s_backend">> => <<"cets">>},
+               <<"modules">> => #{<<"mod_roster">> => #{}}},
+    ?err([#{reason := backend_requires_internal_database}], Config).
+
+global_backend_requires_internal_db(_Config) ->
+    %% sm_backend set to cets but only mnesia is in internal_databases (default)
+    ?err([#{reason := backend_requires_internal_database}],
+         #{<<"general">> => #{<<"sm_backend">> => <<"cets">>}}).
+
+service_backend_requires_internal_db(_Config) ->
+    %% service_bosh backend set to cets but only mnesia is in internal_databases (default)
+    ?err([#{reason := backend_requires_internal_database}],
+         #{<<"services">> => #{<<"service_bosh">> => #{<<"backend">> => <<"cets">>}}}).
+
+auth_backend_requires_internal_db(_Config) ->
+    %% anonymous auth backend set to cets but only mnesia is in internal_databases (default)
+    ?err([#{reason := backend_requires_internal_database}],
+         #{<<"auth">> => #{<<"anonymous">> => #{<<"backend">> => <<"cets">>}}}).
+
+valid_backend_configuration(_Config) ->
+    %% mod_roster with mnesia backend + default internal_databases (includes mnesia) -> ok
+    ?cfgh([modules, mod_roster, backend], mnesia,
+          #{<<"modules">> => #{<<"mod_roster">> => #{}}}),
+    %% cets backends with cets in internal_databases -> ok
+    ?cfg(sm_backend, cets,
+         #{<<"general">> => #{<<"sm_backend">> => <<"cets">>},
+           <<"internal_databases">> => #{<<"cets">> => #{}, <<"mnesia">> => #{}}}).
 
 %% tests: shaper, acl, access
 shaper(_Config) ->
@@ -1447,7 +1482,8 @@ s2s_outgoing_tls(_Config) ->
     ?cfgh(P, default_config(P), T(#{})), % default options if tls section is present
     ?cfgh(P ++ [verify_mode], none, T(#{<<"verify_mode">> => <<"none">>})),
     ?cfgh(P ++ [cacertfile], "priv/ca.pem", T(tls_ca_raw())),
-    ?cfgh(P ++ [certfile], "priv/cert.pem", T(#{<<"certfile">> => <<"priv/cert.pem">>})),
+    ?cfgh(P ++ [certfile], "priv/cert.pem", T(#{<<"certfile">> => <<"priv/cert.pem">>,
+                                                <<"keyfile">> => <<"priv/dc1.pem">>})),
     ?cfgh(P ++ [ciphers], "TLS_AES_256_GCM_SHA384",
           T(#{<<"ciphers">> => <<"TLS_AES_256_GCM_SHA384">>})),
     ?cfgh(P ++ [keyfile], "priv/dc1.pem", T(#{<<"keyfile">> => <<"priv/dc1.pem">>})),
@@ -1455,12 +1491,14 @@ s2s_outgoing_tls(_Config) ->
     ?cfgh(P ++ [versions], ['tlsv1.2', 'tlsv1.3'],
           T(#{<<"versions">> => [<<"tlsv1.2">>, <<"tlsv1.3">>]})),
     ?err(T(#{<<"verify_mode">> => <<"whatever">>})),
-    ?err(T(#{<<"certfile">> => <<"no_such_file.pem">>})),
     ?err(T(#{<<"cacertfile">> => <<"no_such_file.pem">>})),
     ?err(T(#{<<"ciphers">> => [<<"TLS_AES_256_GCM_SHA384">>]})),
     ?err(T(#{<<"keyfile">> => <<"no_such_file.pem">>})),
     ?err(T(#{<<"password">> => false})),
-    ?err(T(#{<<"versions">> => <<"tlsv1.2">>})).
+    ?err(T(#{<<"versions">> => <<"tlsv1.2">>})),
+    %% Certfile without keyfile should fail (OTP 28.1+ requirement)
+    ?err(T(#{<<"certfile">> => <<"priv/cert.pem">>})),
+    ?err(T(#{<<"certfile">> => <<"no_such_file.pem">>})).
 
 %% modules
 
@@ -1518,27 +1556,6 @@ mod_fast_auth_token(_Config) ->
 
 mod_blocking(_Config) ->
     test_privacy_opts(mod_blocking).
-
-mod_bosh(_Config) ->
-    check_module_defaults(mod_bosh),
-    P = [modules, mod_bosh],
-    T = fun(K, V) -> #{<<"modules">> => #{<<"mod_bosh">> => #{K => V}}} end,
-    ?cfgh(P ++ [backend], mnesia, T(<<"backend">>, <<"mnesia">>)),
-    ?cfgh(P ++ [inactivity], 10, T(<<"inactivity">>, 10)),
-    ?cfgh(P ++ [inactivity], infinity, T(<<"inactivity">>, <<"infinity">>)),
-    ?cfgh(P ++ [max_wait], 10, T(<<"max_wait">>, 10)),
-    ?cfgh(P ++ [max_wait], infinity, T(<<"max_wait">>, <<"infinity">>)),
-    ?cfgh(P ++ [server_acks], true, T(<<"server_acks">>, true)),
-    ?cfgh(P ++ [server_acks], false, T(<<"server_acks">>, false)),
-    ?cfgh(P ++ [max_pause], 10, T(<<"max_pause">>, 10)),
-    ?errh(T(<<"backend">>, <<"nodejs">>)),
-    ?errh(T(<<"inactivity">>, 0)),
-    ?errh(T(<<"inactivity">>, <<"10">>)),
-    ?errh(T(<<"inactivity">>, <<"inactivity">>)),
-    ?errh(T(<<"max_wait">>, <<"10">>)),
-    ?errh(T(<<"max_wait">>, 0)),
-    ?errh(T(<<"server_acks">>, -1)),
-    ?errh(T(<<"maxpause">>, 0)).
 
 mod_caps(_Config) ->
     check_module_defaults(mod_caps),
@@ -1636,6 +1653,15 @@ mod_extdisco(_Config) ->
     ?errh(T(RequiredOpts#{<<"transport">> => <<>>})),
     ?errh(T(RequiredOpts#{<<"username">> => <<>>})),
     ?errh(T(RequiredOpts#{<<"password">> => <<>>})).
+
+mod_external_filter(_Config) ->
+    % This module doesn't have any defaults, hence no check_module_defaults/1 call
+    P = [modules, mod_external_filter],
+    T = fun(Opts) -> #{<<"modules">> => #{<<"mod_external_filter">> => Opts}} end,
+    ?cfgh(P ++ [pool_tag], external_service_http, T(#{<<"pool_tag">> => <<"external_service_http">>})),
+    ?errh(T(#{<<"pool_tag">> => <<>>})),
+    ?errh(T(#{<<"pool_tag">> => 123})),
+    ?errh(T(#{})).
 
 mod_inbox(_Config) ->
     check_module_defaults(mod_inbox),
@@ -2509,7 +2535,7 @@ mod_private(_Config) ->
     T = fun(Opts) -> #{<<"modules">> => #{<<"mod_private">> => Opts}} end,
     P = [modules, mod_private],
     ?cfgh(P ++ [backend], rdbms, T(#{<<"backend">> => <<"rdbms">>})),
-    ?errh(T(#{<<"backend">> => <<"mssql">>})).
+    ?errh(T(#{<<"backend">> => <<"mysql">>})).
 
 mod_pubsub(_Config) ->
     check_iqdisc(mod_pubsub),
@@ -2972,6 +2998,30 @@ incorrect_module(_Config) ->
 
 %% Services
 
+service_bosh(_Config) ->
+    P = [services, service_bosh],
+    T = fun(Opts) -> #{<<"services">> => #{<<"service_bosh">> => Opts}} end,
+    ?cfg(P, default_config(P), T(#{})),
+    ?cfg(P ++ [backend], mnesia, T(#{<<"backend">> => <<"mnesia">>})),
+    ?cfg(P ++ [inactivity], 10, T(#{<<"inactivity">> => 10})),
+    ?cfg(P ++ [inactivity], infinity, T(#{<<"inactivity">> => <<"infinity">>})),
+    ?cfg(P ++ [max_wait], 10, T(#{<<"max_wait">> => 10})),
+    ?cfg(P ++ [max_wait], infinity, T(#{<<"max_wait">> => <<"infinity">>})),
+    ?cfg(P ++ [server_acks], true, T(#{<<"server_acks">> => true})),
+    ?cfg(P ++ [server_acks], false, T(#{<<"server_acks">> => false})),
+    ?cfg(P ++ [max_pause], 10, T(#{<<"max_pause">> => 10})),
+    ?cfg(P ++ [host_types], [<<"h1">>, <<"h2">>], T(#{<<"host_types">> => [<<"h1">>, <<"h2">>]})),
+    ?err(T(#{<<"backend">> => <<"nodejs">>})),
+    ?err(T(#{<<"inactivity">> => 0})),
+    ?err(T(#{<<"inactivity">> => <<"10">>})),
+    ?err(T(#{<<"inactivity">> => <<"inactivity">>})),
+    ?err(T(#{<<"max_wait">> => <<"10">>})),
+    ?err(T(#{<<"max_wait">> => 0})),
+    ?err(T(#{<<"server_acks">> => -1})),
+    ?err(T(#{<<"maxpause">> => 0})),
+    ?err(T(#{<<"host_types">> => <<"host">>})),
+    ?err(T(#{<<"host_types">> => [<<"repeated">>, <<"repeated">>]})).
+
 service_domain_db(_Config) ->
     P = [services, service_domain_db],
     T = fun(Opts) -> #{<<"services">> => #{<<"service_domain_db">> => Opts}} end,
@@ -3123,7 +3173,7 @@ check_module_defaults(Mod) ->
         0 ->
             ok;
         _ ->
-            assert_configurable_module(mod_fast_auth_token)
+            assert_configurable_module(Mod)
     end,
     ?cfgh([modules, Mod], ExpectedCfg, #{<<"modules">> => #{atom_to_binary(Mod) => #{}}}).
 

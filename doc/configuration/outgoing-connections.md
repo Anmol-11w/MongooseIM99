@@ -57,6 +57,17 @@ Number of workers to be started by the pool.
 
 Number of milliseconds after which a call to the pool will time out.
 
+### `outgoing_pools.*.*.max_worker_queue_len`
+* **Syntax:** non-negative integer
+* **Default:** not set
+* **Example:** `max_worker_queue_len = 1000`
+
+Maximum number of requests waiting in the incoming message queue of a worker. By default there is no such limit.
+When this queue length is reached for all workers, further incoming requests will be dropped.
+
+!!! Note
+    This option is applicable only to the `best_worker` strategy. Using it for other strategies is not allowed.
+
 ## Connection options
 
 Options specific to a pool connection are defined in a subsection starting with `[outgoing_pools.*.*.connection]`.
@@ -74,7 +85,7 @@ For example:
 ### RDBMS options
 
 #### `outgoing_pools.rdbms.*.connection.driver`
-* **Syntax:** string, one of `"pgsql"`, `"mysql"`, `"cockroachdb"` or `"odbc"` (a supported driver)
+* **Syntax:** string, one of `"pgsql"`, `"mysql"`, `"cockroachdb"`
 * **Default:** none - this option is mandatory
 * **Example:** `driver = "psgql"`
 
@@ -138,34 +149,6 @@ To enable TLS, you need to include the [TLS section](#tls-options) in the connec
 
 This option can be used to enforce a TLS connection.
 
-### ODBC options
-
-#### `outgoing_pools.rdbms.*.connection.settings`
-* **Syntax:** string
-* **Default:** no default; required if the `"odbc"` driver is specified
-* **Example:** `settings = "DSN=mydb"`
-
-ODBC - specific string defining connection parameters.
-
-#### ODBC SSL connection setup
-
-If you've configured MongooseIM to use an ODBC driver, then the SSL options, along other connection options, should be present in the `~/.odbc.ini` file.
-
-To enable SSL connection the `sslmode` option needs to be set to `verify-full`.
-Additionally, you can provide the path to the CA certificate using the `sslrootcert` option.
-
-##### Example ~/.odbc.ini configuration
-
-```ini
-[mydb]
-Driver      = ...
-ServerName  = ...
-Port        = ...
-...
-sslmode     = verify-full
-sslrootcert = /path/to/ca/cert
-```
-
 ## HTTP options
 
 ### `outgoing_pools.http.*.connection.host`
@@ -217,9 +200,14 @@ There are two important limitations:
 
 Logical database index (zero-based).
 
+### `outgoing_pools.redis.*.connection.username`
+* **Syntax:** string
+* **Default:** not set
+* **Example:** `password = "alice"`
+
 ### `outgoing_pools.redis.*.connection.password`
 * **Syntax:** string
-* **Default:** `""`
+* **Default:** not set
 * **Example:** `password = "topsecret"`
 
 ---
@@ -338,12 +326,26 @@ Sets the RabbitMQ Virtual Host. The host needs to exist, as it is **not** create
 
 Enables/disables one-to-one publishers confirms.
 
-### `outgoing_pools.rabbit.*.connection.max_worker_queue_len`
-* **Syntax:** non-negative integer or `"infinity"`
-* **Default:** `1000`
-* **Example:** `max_worker_queue_len = "infinity"`
+### `outgoing_pools.rabbit.*.connection.reconnect.attempts`
+* **Syntax:** non-negative integer
+* **Default:** 0
+* **Example:** `reconnect.attempts = 5`
 
-Sets a limit of messages in a worker's mailbox above which the worker starts dropping the messages. If a worker message queue length reaches the limit, messages from the head of the queue are dropped until the queue length is again below the limit. Use `infinity` to disable.
+By default, a failed connection attempt results in an immediate restart of the affected worker.
+When this happens, its incoming request queue is lost, and any requests present in the queue are dropped.
+To avoid this, you can use this option to specify a number of reconnection attempts before the worker is restarted.
+
+!!! Warning
+    Using this option might result in a lot of requests being accumulated in the worker queues - especially if `reconnect.delay` multiplied by `reconnect.attempts` is a long time period.
+    Thus, we recommend using the [`max_worker_queue_len`](#outgoing_poolsmax_worker_queue_len) option as a safety valve is such cases.
+
+### `outgoing_pools.rabbit.*.connection.reconnect.delay`
+* **Syntax:** non-negative integer (milliseconds)
+* **Default:** 2000
+* **Example:** `reconnect.delay = 5000`
+
+Delay (in milliseconds) between consecutive reconnection attempts.
+This option is effective only if the value of `reconnect.attempts` is positive.
 
 ---
 To enable TLS, you need to include the [TLS section](#tls-options) in the connection options.

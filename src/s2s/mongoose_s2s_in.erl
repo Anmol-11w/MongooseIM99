@@ -324,7 +324,8 @@ route_incoming_stanza(Data, El, RemoteJid, LocalJid) ->
                              lserver => LLocalServer,
                              element => El,
                              from_jid => RemoteJid,
-                             to_jid => LocalJid}),
+                             to_jid => LocalJid,
+                             origin => xmpp_s2s}),
     case is_s2s_authenticated_or_connected(Data, FromTo) of
         true ->
             route_stanza(Acc),
@@ -557,7 +558,7 @@ match_labels([DL | DLabels], [PL | PLabels]) ->
                                  orelse (C == $-) orelse (C == $*)
                    end, PLlist) of
         true ->
-            Regexp = mongoose_lib:glob_to_re(PLlist),
+            Regexp = mongoose_lib:sh_to_awk(PLlist),
             case re:run(binary_to_list(DL), Regexp, [{capture, none}]) of
                 match ->
                     match_labels(DLabels, PLabels);

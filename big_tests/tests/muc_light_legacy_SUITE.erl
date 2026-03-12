@@ -6,9 +6,8 @@
 
 -compile([export_all, nowarn_export_all]).
 
--import(escalus_ejabberd, [rpc/3]).
 -import(muc_helper, [foreach_occupant/3, foreach_recipient/2]).
--import(distributed_helper, [subhost_pattern/1]).
+-import(distributed_helper, [mim/0, rpc/4, subhost_pattern/1]).
 -import(domain_helper, [host_type/0, domain/0]).
 -import(muc_light_helper, [
                            bin_aff_users/1,
@@ -623,7 +622,7 @@ stanza_config_set(Room, ConfigChanges) ->
     IQ = escalus_stanza:iq_set(?NS_MUC_OWNER, [form_x_el(ConfigChanges)]),
     escalus_stanza:to(IQ, room_bin_jid(Room)).
 
--spec form_x_el(Fields :: [map()]) -> xmlel().
+-spec form_x_el(Fields :: [muc_light_helper:config_item()]) -> xmlel().
 form_x_el(Fields) ->
     FieldSpecs = [#{var => Var, values => [Value], type => <<"text-single">>}
                   || {Var, Value} <- Fields],
@@ -659,7 +658,7 @@ parse_blocked_item(Item) ->
         [MucHost, User] -> {user, deny, User};
         [Room] -> {room, deny, Room};
         Other ->
-            CfgHost = rpc(gen_mod, get_module_opt, [host_type(), mod_muc_light, host, undefined]),
+            CfgHost = rpc(mim(), gen_mod, get_module_opt, [host_type(), mod_muc_light, host, undefined]),
             ct:fail(#{what => parse_blocked_item_failed,
                       muc_host => MucHost, other => Other,
                       cfg_host => CfgHost})
@@ -705,7 +704,7 @@ verify_no_stanzas(Users) ->
               {false, _} = {escalus_client:has_stanzas(User), User}
       end, Users).
 
--spec verify_config(ConfigFields :: [xmlel()], Config :: [muc_light_helper:config_item()]) -> ok.
+-spec verify_config(ConfigFields :: [xmlel()], Config :: [muc_light_helper:config_item()]) -> [].
 verify_config(ConfigFields, Config) ->
     [] = lists:foldl(
            fun(Field, ConfigAcc) ->

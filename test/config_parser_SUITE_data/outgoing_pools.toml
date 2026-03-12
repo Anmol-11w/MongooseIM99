@@ -30,6 +30,16 @@
     path_prefix = "/"
     request_timeout = 2000
 
+[outgoing_pools.redis.default]
+  scope = "global"
+
+  [outgoing_pools.redis.default.connection]
+    host = "redis.example.com"
+    port = 6380
+    database = 2
+    username = "alice"
+    password = "p1pp0"
+
 [outgoing_pools.cassandra.default]
   scope = "global"
 
@@ -47,6 +57,7 @@
 [outgoing_pools.rabbit.event_pusher]
   scope = "host_type"
   workers = 20
+  max_worker_queue_len = 100
 
   [outgoing_pools.rabbit.event_pusher.connection]
     host = "localhost"
@@ -54,7 +65,8 @@
     username = "guest"
     password = "guest"
     confirms_enabled = true
-    max_worker_queue_len = 100
+    reconnect.attempts = 5
+    reconnect.delay = 1000
 
 [outgoing_pools.ldap.default]
   scope = "host_type"

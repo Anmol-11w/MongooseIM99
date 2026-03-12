@@ -10,8 +10,7 @@
         room_bin_jid/1,
         create_room/6
     ]).
--import(escalus_ejabberd, [rpc/3]).
--import(distributed_helper, [subhost_pattern/1]).
+-import(distributed_helper, [mim/0, rpc/4, subhost_pattern/1]).
 -import(domain_helper, [host_type/0]).
 -import(config_parser_helper, [mod_config/2, config/2]).
 -import(push_helper, [
@@ -655,14 +654,14 @@ start_route_listener(Config) ->
     State = #{ pid => self(),
                pub_options_ns => push_helper:ns_pubsub_pub_options(),
                push_form_ns => push_helper:push_form_type() },
-    Handler = rpc(mongoose_packet_handler, new, [?MODULE, #{state => State}]),
+    Handler = rpc(mim(), mongoose_packet_handler, new, [?MODULE, #{state => State}]),
     Domain = pubsub_domain(Config),
-    rpc(mongoose_router, register_route, [Domain, Handler]),
+    rpc(mim(), mongoose_router, register_route, [Domain, Handler]),
     Config.
 
 stop_route_listener(Config) ->
     Domain = pubsub_domain(Config),
-    rpc(mongoose_router, unregister_route, [Domain]).
+    rpc(mim(), mongoose_router, unregister_route, [Domain]).
 
 process_packet(Acc, _From, To, El, #{state := State}) ->
     #{ pid := TestCasePid, pub_options_ns := PubOptionsNS, push_form_ns := PushFormNS } = State,
@@ -708,20 +707,16 @@ valid_ns_if_defined(NS, FormProplist) ->
     NS =:= proplists:get_value(<<"FORM_TYPE">>, FormProplist).
 
 start_hook_listener(Config) ->
-    TestCasePid = self(),
-    PubSubJID = pubsub_jid(Config),
-    rpc(?MODULE, rpc_start_hook_handler, [TestCasePid, PubSubJID]),
-    [{pid, TestCasePid}, {jid, PubSubJID} | Config].
+    Handler = hook_handler(self(), pubsub_jid(Config), host_type()),
+    hook_helper:add_handler(Handler),
+    [{handler, Handler} | Config].
 
 stop_hook_listener(Config) ->
-    TestCasePid = proplists:get_value(pid, Config),
-    PubSubJID = proplists:get_value(jid, Config),
-    rpc(?MODULE, rpc_stop_hook_handler, [TestCasePid, PubSubJID]).
+    hook_helper:delete_handler(proplists:get_value(handler, Config)).
 
-rpc_start_hook_handler(TestCasePid, PubSubJID) ->
-    gen_hook:add_handler(push_notifications,  <<"localhost">>,
-                         fun ?MODULE:hook_handler_fn/3,
-                         #{pid => TestCasePid, jid => PubSubJID}, 50).
+hook_handler(TestCasePid, PubSubJID, HostType) ->
+    {push_notifications, HostType, fun ?MODULE:hook_handler_fn/3,
+     #{pid => TestCasePid, jid => PubSubJID, host_type => HostType}, 50}.
 
 hook_handler_fn(Acc,
                 #{notification_forms := [PayloadMap], options := OptionMap} = _Params,
@@ -740,11 +735,6 @@ hook_handler_fn(Acc,
                             stacktrace => S}
     end,
     {ok, Acc}.
-
-rpc_stop_hook_handler(TestCasePid, PubSubJID) ->
-    gen_hook:delete_handler(push_notifications, <<"localhost">>,
-                            fun ?MODULE:hook_handler_fn/3,
-                            #{pid => TestCasePid, jid => PubSubJID}, 50).
 
 %%--------------------------------------------------------------------
 %% Test helpers

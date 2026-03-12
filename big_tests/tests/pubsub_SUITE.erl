@@ -50,26 +50,17 @@ group_is_compatible(hometree_specific, OnlyNodetreeTree) -> OnlyNodetreeTree =:=
 group_is_compatible(_, _) -> true.
 
 base_groups() ->
-    [{basic, parallel_props(), basic_tests()},
-     {service_config, parallel_props(), service_config_tests()},
-     {node_config, parallel_props(), node_config_tests()},
-     {node_affiliations, parallel_props(), node_affiliations_tests()},
-     {manage_subscriptions, parallel_props(), manage_subscriptions_tests()},
+    [{basic, [parallel], basic_tests()},
+     {service_config, [parallel], service_config_tests()},
+     {node_config, [parallel], node_config_tests()},
+     {node_affiliations, [parallel], node_affiliations_tests()},
+     {manage_subscriptions, [parallel], manage_subscriptions_tests()},
      {collection, [sequence], collection_tests()},
-     {collection_config, parallel_props(), collection_config_tests()},
-     {debug_calls, parallel_props(), debug_calls_tests()},
-     {pubsub_item_publisher_option, parallel_props(), pubsub_item_publisher_option_tests()},
+     {collection_config, [parallel], collection_config_tests()},
+     {debug_calls, [parallel], debug_calls_tests()},
+     {pubsub_item_publisher_option, [parallel], pubsub_item_publisher_option_tests()},
      {hometree_specific, [sequence], hometree_specific_tests()},
-     {last_item_cache, parallel_props(), last_item_cache_tests()}].
-
-parallel_props() ->
-    case rpc(mim(), mongoose_rdbms, db_engine, [host_type()]) of
-        cockroachdb ->
-            %% Parallel pubsub tests are flaky on CockroachDB
-            [parallel, {repeat_until_all_ok, 5}];
-        _ ->
-            [parallel]
-    end.
+     {last_item_cache, [parallel], last_item_cache_tests()}].
 
 basic_tests() ->
     [
@@ -944,8 +935,10 @@ send_last_published_item_no_items_test(Config) ->
               Node = pubsub_node(),
               pubsub_tools:create_node(Alice, Node, [{config, NodeConfig}]),
 
-              %% Note: when Bob subscribes, the last item would is sent to him
+              %% Note: when Bob subscribes, no last item is sent (there are none)
+              %% Receive subscription response to clear the mailbox before checking
               pubsub_tools:subscribe(Bob, Node, [{receive_response, false}]),
+              pubsub_tools:receive_subscribe_response(Bob, Node, []),
               escalus_assert:has_no_stanzas(Bob),
               pubsub_tools:delete_node(Alice, Node, [])
       end).
@@ -1890,8 +1883,8 @@ deleting_parent_path_deletes_children(Config) ->
 
 path_node_and_parent(Client, {NodeAddr, NodeName}) ->
     %% TODO: Add proper JID stringprepping to escalus!!!
-    JID = escalus_ejabberd:rpc(jid, from_binary, [escalus_client:short_jid(Client)]),
-    {LUser, LServer, _} = escalus_ejabberd:rpc(jid, to_lower, [JID]),
+    JID = rpc(mim(), jid, from_binary, [escalus_client:short_jid(Client)]),
+    {LUser, LServer, _} = rpc(mim(), jid, to_lower, [JID]),
     Prefix = <<"/home/", LServer/binary, "/", LUser/binary>>,
     {{NodeAddr, Prefix}, {NodeAddr, <<Prefix/binary, "/", NodeName/binary>>}}.
 

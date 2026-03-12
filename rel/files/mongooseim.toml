@@ -17,20 +17,17 @@
   {{#http_server_name}}
   http_server_name = {{{http_server_name}}}
   {{/http_server_name}}
-  {{#rdbms_server_type}}
-  rdbms_server_type = {{{rdbms_server_type}}}
-  {{/rdbms_server_type}}
 
 [[listen.http]]
   port = {{{http_port}}}
   transport.num_acceptors = 10
   transport.max_connections = 1024
 
-  [[listen.http.handlers.mod_bosh]]
+  [[listen.http.handlers.mongoose_bosh_handler]]
     host = "_"
     path = "/http-bind"
 
-  [[listen.http.handlers.mod_websockets]]
+  [[listen.http.handlers.mongoose_websocket_handler]]
     host = "_"
     path = "/ws-xmpp"
 
@@ -42,39 +39,13 @@
   {{{https_config}}}
   {{/https_config}}
 
-  [[listen.http.handlers.mod_bosh]]
+  [[listen.http.handlers.mongoose_bosh_handler]]
     host = "_"
     path = "/http-bind"
 
-  [[listen.http.handlers.mod_websockets]]
+  [[listen.http.handlers.mongoose_websocket_handler]]
     host = "_"
     path = "/ws-xmpp"
-
-[[listen.http]]
-  {{#http_api_endpoint}}
-  {{{http_api_endpoint}}}
-  {{/http_api_endpoint}}
-  transport.num_acceptors = 10
-  transport.max_connections = 1024
-
-  [[listen.http.handlers.mongoose_admin_api]]
-    host = "localhost"
-    path = "/api"
-
-[[listen.http]]
-  {{#http_api_client_endpoint}}
-  {{{http_api_client_endpoint}}}
-  {{/http_api_client_endpoint}}
-  transport.num_acceptors = 10
-  transport.max_connections = 1024
-  protocol.compress = true
-  {{#https_config}}
-  {{{https_config}}}
-  {{/https_config}}
-
-  [[listen.http.handlers.mongoose_client_api]]
-    host = "_"
-    path = "/api"
 
 [[listen.http]]
   {{#http_graphql_api_admin_endpoint}}
@@ -198,12 +169,18 @@
 #    tls.server_name_indication.enabled = false
 {{/outgoing_pools}}
 
-[services.service_mongoose_system_metrics]
+[services.service_bosh]
+  {{#bosh_backend}}
+  backend = {{{bosh_backend}}}
+  {{/bosh_backend}}
 
 {{#service_domain_db}}
 [services.service_domain_db]
 {{{service_domain_db}}}
+
 {{/service_domain_db}}
+[services.service_mongoose_system_metrics]
+
 [modules.mod_adhoc]
 
 {{#mod_amp}}
@@ -261,10 +238,6 @@
 [modules.mod_vcard]
 {{{mod_vcard}}}
 {{/mod_vcard}}
-[modules.mod_bosh]
-  {{#bosh_backend}}
-  backend = {{{bosh_backend}}}
-  {{/bosh_backend}}
 
 [modules.mod_carboncopy]
 

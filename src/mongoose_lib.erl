@@ -9,6 +9,8 @@
 %% Busy Wait
 -export([wait_until/2, wait_until/3]).
 -export([parse_ip_netmask/1]).
+%% Regex
+-export([sh_to_awk/1]).
 
 -export([get_message_type/1, does_local_user_exist/3]).
 
@@ -18,13 +20,11 @@
 
 -ignore_xref([pairs_foreach/2, wait_until/3]).
 
--export_type([microseconds/0]).
+-export_type([microseconds/0, message_type/0]).
 -export([pmap/2, pmap/3]).
 -ignore_xref([pmap/3]).
 
 -export([is_exported/3]).
-%% Shell glob to POSIX regexp conversion (replaces removed xmerl_regexp:sh_to_awk/1)
--export([glob_to_re/1]).
 
 -include("mongoose.hrl").
 -include("jlib.hrl").
@@ -42,7 +42,7 @@
 -spec log_if_backend_error(V :: any(), % value return by called backend fun
                            Module :: atom(), % caller
                            Line :: integer(),
-                           Args :: any() ) -> ok.
+                           Args :: any()) -> ok.
 log_if_backend_error(ok, _Module, _Line, _Args) -> ok;
 log_if_backend_error({ok, _}, _Module, _Line, _Args) -> ok;
 log_if_backend_error({atomic, _}, _Module, _Line, _Args) -> ok;
@@ -88,7 +88,7 @@ maps_foreach(Fun, Map) when is_function(Fun, 2) ->
 pairs_foreach(Fun, List) when is_function(Fun, 1) ->
     lists:foreach(Fun, List);
 pairs_foreach(Fun, List) when is_function(Fun, 2) ->
-    lists:foreach(fun({K,V}) -> Fun(K,V) end, List).
+    lists:foreach(fun({K, V}) -> Fun(K, V) end, List).
 
 maps_or_pairs_foreach(Fun, Map) when is_map(Map) ->
     maps_foreach(Fun, Map);
@@ -193,7 +193,7 @@ pmap(F, Es) ->
 
 pmap(F, Es, Timeout) ->
     TimerRef = erlang:start_timer(Timeout, self(), pmap_timeout),
-    Running = 
+    Running =
         [spawn_monitor(fun() -> exit({pmap_result, F(E)}) end)
             || E <- Es],
     Result = collect(Running, TimerRef),
@@ -231,33 +231,64 @@ is_exported(Module, Function, Arity) ->
     code:ensure_loaded(Module),
     erlang:function_exported(Module, Function, Arity).
 
-%% @doc Convert a shell glob pattern (string) to an anchored POSIX regexp string
-%% suitable for use with re:run/3. This replaces the removed xmerl_regexp:sh_to_awk/1.
--spec glob_to_re(string()) -> string().
-glob_to_re(Glob) ->
-    "^" ++ glob_to_re_chars(Glob) ++ "$".
+%% ------------------------------------------------------------------
+%% sh_to_awk (replacement for xmerl_regexp:sh_to_awk)
+%% ------------------------------------------------------------------
 
--spec glob_to_re_chars(string()) -> string().
-glob_to_re_chars([]) -> [];
-glob_to_re_chars([$* | Rest]) -> ".*" ++ glob_to_re_chars(Rest);
-glob_to_re_chars([$? | Rest]) -> "." ++ glob_to_re_chars(Rest);
-glob_to_re_chars([$[ | Rest]) ->
-    {Class, Rest2} = glob_collect_class(Rest),
-    "[" ++ Class ++ glob_to_re_chars(Rest2);
-glob_to_re_chars([C | Rest]) ->
-    glob_escape_char(C) ++ glob_to_re_chars(Rest).
+%% @doc Convert a shell-style glob pattern to an AWK-style regular expression.
+%% Copied and adapted from xmerl_regexp:sh_to_awk.
+-spec sh_to_awk(string()) -> string().
+sh_to_awk(Sh) -> % Fix the beginning
+    "^(" ++ sh_to_awk_1(Sh).
 
--spec glob_escape_char(char()) -> string().
-glob_escape_char(C) ->
-    case lists:member(C, ".+^${}()|[]\\") of
-        true -> [$\\, C];
-        false -> [C]
-    end.
+sh_to_awk_1([$* | Sh]) -> % This matches any string
+    ".*" ++ sh_to_awk_1(Sh);
+sh_to_awk_1([$? | Sh]) -> % This matches any character
+    [$. | sh_to_awk_1(Sh)];
+sh_to_awk_1([$[, $^, $] | Sh]) -> % This takes careful handling
+    "\\^" ++ sh_to_awk_1(Sh);
+%% Must move '^' to end.
+sh_to_awk_1("[^" ++ Sh) ->
+    [$[ | sh_to_awk_2(Sh, true)];
+sh_to_awk_1("[!" ++ Sh) ->
+    "[^" ++ sh_to_awk_2(Sh, false);
+sh_to_awk_1([$[ | Sh]) ->
+    [$[ | sh_to_awk_2(Sh, false)];
+sh_to_awk_1([C | Sh]) ->
+    %% Unspecialise everything else which is not an escape character.
+    case sh_special_char(C) of
+        true -> [$\\, C | sh_to_awk_1(Sh)];
+        false -> [C | sh_to_awk_1(Sh)]
+    end;
+sh_to_awk_1([]) -> % Fix the end
+    ")$".
 
-%% Collect characters inside [...] preserving the bracket class as-is.
--spec glob_collect_class(string()) -> {string(), string()}.
-glob_collect_class([$] | Rest]) -> {"]", Rest};
-glob_collect_class([C | Rest]) ->
-    {Class, Rest2} = glob_collect_class(Rest),
-    {[C | Class], Rest2};
-glob_collect_class([]) -> {"", []}.
+sh_to_awk_2([$] | Sh], UpArrow) ->
+    [$] | sh_to_awk_3(Sh, UpArrow)];
+sh_to_awk_2(Sh, UpArrow) ->
+    sh_to_awk_3(Sh, UpArrow).
+
+sh_to_awk_3([$] | Sh], true) ->
+    "^]" ++ sh_to_awk_1(Sh);
+sh_to_awk_3([$] | Sh], false) ->
+    [$] | sh_to_awk_1(Sh)];
+sh_to_awk_3([C | Sh], UpArrow) ->
+    [C | sh_to_awk_3(Sh, UpArrow)];
+sh_to_awk_3([], true) ->
+    [$^ | sh_to_awk_1([])];
+sh_to_awk_3([], false) ->
+    sh_to_awk_1([]).
+
+-spec sh_special_char(char()) -> boolean().
+sh_special_char($|) -> true;
+sh_special_char($+) -> true;
+sh_special_char($() -> true;
+sh_special_char($)) -> true;
+sh_special_char($\\) -> true;
+sh_special_char($^) -> true;
+sh_special_char($$) -> true;
+sh_special_char($.) -> true;
+sh_special_char($]) -> true;
+sh_special_char($") -> true;
+sh_special_char(_C) -> false.
+%% *, ?, [ are handled separately, so they are not included here.

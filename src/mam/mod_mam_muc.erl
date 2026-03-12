@@ -151,11 +151,12 @@ filter_room_packet(Packet, EventData, #{host_type := HostType}) ->
     ?LOG_DEBUG(#{what => mam_room_packet, text => <<"Incoming room packet">>,
                  packet => Packet, event_data => EventData}),
     IsArchivable = is_archivable_message(HostType, incoming, Packet),
+    StableID = maps:get(stable_stanza_id, EventData, undefined),
     case IsArchivable of
         true ->
             #{from_nick := FromNick, from_jid := FromJID, room_jid := RoomJID,
               role := Role, affiliation := Affiliation, timestamp := TS} = EventData,
-            {ok, archive_room_packet(HostType, Packet, FromNick, FromJID,
+            {ok, archive_room_packet(HostType, Packet, StableID, FromNick, FromJID,
                                      RoomJID, Role, Affiliation, TS)};
         false ->
             {ok, Packet}
@@ -163,11 +164,12 @@ filter_room_packet(Packet, EventData, #{host_type := HostType}) ->
 
 %% @doc Archive without validation.
 -spec archive_room_packet(HostType :: host_type(),
-                          Packet :: packet(), FromNick :: jid:user(),
+                          Packet :: packet(), StableID :: non_neg_integer(),
+                          FromNick :: jid:user(),
                           FromJID :: jid:jid(), RoomJID :: jid:jid(),
                           Role :: mod_muc:role(), Affiliation :: mod_muc:affiliation(),
                           TS :: integer()) -> packet().
-archive_room_packet(HostType, Packet, FromNick, FromJID = #jid{},
+archive_room_packet(HostType, Packet, StableID, FromNick, FromJID = #jid{},
                     RoomJID = #jid{}, Role, Affiliation, TS) ->
     ArcID = archive_id_int(HostType, RoomJID),
     %% Occupant JID <room@service/nick>
@@ -181,7 +183,10 @@ archive_room_packet(HostType, Packet, FromNick, FromJID = #jid{},
         end,
     case IsInteresting andalso IsMamMucEnabled of
         true ->
-            MessID = mod_mam_utils:generate_message_id(TS),
+            MessID = case StableID of
+                         undefined -> mod_mam_utils:generate_message_id(TS);
+                         I -> I
+                     end,
             Packet1 = mod_mam_utils:replace_x_user_element(FromJID, Role, Affiliation, Packet),
             OriginID = mod_mam_utils:get_origin_id(Packet),
             Params = #{message_id => MessID,
@@ -292,9 +297,8 @@ is_room_owner(HostType, Acc, UserJid, RoomJid) ->
                               UserJid :: jid:jid(),
                               RoomJid :: jid:jid()) -> boolean().
 is_user_identity_hidden(HostType, UserJid, RoomJid) ->
-    case mongoose_hooks:can_access_identity(HostType, RoomJid, UserJid) of
-        CanAccess when is_boolean(CanAccess) -> not CanAccess
-    end.
+    CanAccess = mongoose_hooks:can_access_identity(HostType, RoomJid, UserJid),
+    not CanAccess.
 
 -spec can_access_room(HostType :: host_type(),
                       Acc :: mongoose_acc:t(),
@@ -607,7 +611,8 @@ handle_error_iq(Acc, _HostType, _To, _Action, IQ) ->
 return_error_iq(IQ, {Reason, {stacktrace, _Stacktrace}}) ->
     return_error_iq(IQ, Reason);
 return_error_iq(IQ, timeout) ->
-    {error, timeout, IQ#iq{type = error, sub_el = [mongoose_xmpp_errors:service_unavailable(<<"en">>, <<"Timeout in mod_mam_muc">>)]}};
+    ErrEl = mongoose_xmpp_errors:service_unavailable(<<"en">>, <<"Timeout in mod_mam_muc">>),
+    {error, timeout, IQ#iq{type = error, sub_el = [ErrEl]}};
 return_error_iq(IQ, invalid_stanza_id) ->
     Text = mongoose_xmpp_errors:not_acceptable(<<"en">>, <<"Invalid stanza ID provided">>),
     {error, invalid_stanza_id, IQ#iq{type = error, sub_el = [Text]}};
@@ -615,7 +620,8 @@ return_error_iq(IQ, item_not_found) ->
     Text = mongoose_xmpp_errors:item_not_found(<<"en">>, <<"Message with specified ID is not found">>),
     {error, item_not_found, IQ#iq{type = error, sub_el = [Text]}};
 return_error_iq(IQ, not_implemented) ->
-    {error, not_implemented, IQ#iq{type = error, sub_el = [mongoose_xmpp_errors:feature_not_implemented(<<"en">>, <<"From mod_mam_muc">>)]}};
+    ErrEl = mongoose_xmpp_errors:feature_not_implemented(<<"en">>, <<"From mod_mam_muc">>),
+    {error, not_implemented, IQ#iq{type = error, sub_el = [ErrEl]}};
 return_error_iq(IQ, missing_with_jid) ->
     Error =  mongoose_xmpp_errors:bad_request(<<"en">>,
                                <<"Limited set of queries allowed in the conversation mode.",

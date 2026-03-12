@@ -5,7 +5,6 @@
   ]
   default_server_domain = "localhost"
   http_server_name = "Apache"
-  rdbms_server_type = "mssql"
   route_subdomains = "s2s"
   routing_modules = [
       "mongoose_router_global",
@@ -57,7 +56,7 @@
   transport.num_acceptors = 10
   transport.max_connections = 1024
 
-  [[listen.http.handlers.mod_websockets]]
+  [[listen.http.handlers.mongoose_websocket_handler]]
     host = "_"
     path = "/ws-xmpp"
 

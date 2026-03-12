@@ -8,6 +8,9 @@
          iqdisc/0,
          tls/1]).
 
+%% post-processing validation called from mongoose_config_parser
+-export([validate_backend_databases/1]).
+
 %% callbacks for the 'process' step
 -export([process_dynamic_domains/1,
          process_shapers/1,
@@ -184,9 +187,6 @@ general() ->
                                               wrap = global_config},
                  <<"http_server_name">> => #option{type = string,
                                                    wrap = global_config},
-                 <<"rdbms_server_type">> => #option{type = atom,
-                                                    validate = {enum, [mssql, pgsql]},
-                                                    wrap = global_config},
                  <<"route_subdomains">> => #option{type = atom,
                                                    validate = {enum, [s2s]},
                                                    wrap = host_config},
@@ -213,7 +213,6 @@ general_defaults() ->
       <<"sm_backend">> => mnesia,
       <<"component_backend">> => mnesia,
       <<"s2s_backend">> => mnesia,
-      <<"rdbms_server_type">> => generic,
       <<"routing_modules">> => mongoose_router:default_routing_modules(),
       <<"replaced_wait_timeout">> => 2000,
       <<"hide_service_name">> => false}.
@@ -452,7 +451,9 @@ wpool(ExtraDefaults) ->
                        <<"strategy">> => #option{type = atom,
                                                  validate = {enum, wpool_strategy_values()}},
                        <<"call_timeout">> => #option{type = integer,
-                                                     validate = positive}
+                                                     validate = positive},
+                       <<"max_worker_queue_len">> => #option{type = integer,
+                                                             validate = non_negative}
                       },
              defaults = maps:merge(#{<<"workers">> => 10,
                                      <<"strategy">> => best_worker,
@@ -544,9 +545,8 @@ outgoing_pool_connection(<<"rabbit">>) ->
                  <<"virtual_host">> => #option{type = binary,
                                                validate = non_empty},
                  <<"confirms_enabled">> => #option{type = boolean},
-                 <<"max_worker_queue_len">> => #option{type = int_or_infinity,
-                                                       validate = non_negative},
-                 <<"tls">> => tls([client])
+                 <<"tls">> => tls([client]),
+                 <<"reconnect">> => rabbit_reconnect()
                 },
        include = always,
        defaults = #{<<"host">> => "localhost",
@@ -554,22 +554,18 @@ outgoing_pool_connection(<<"rabbit">>) ->
                     <<"username">> => <<"guest">>,
                     <<"password">> => <<"guest">>,
                     <<"virtual_host">> => <<"/">>,
-                    <<"confirms_enabled">> => false,
-                    <<"max_worker_queue_len">> => 1000}
+                    <<"confirms_enabled">> => false}
       };
 outgoing_pool_connection(<<"rdbms">>) ->
     #section{
        items = #{<<"driver">> => #option{type = atom,
-                                         validate = {enum, [odbc, pgsql, mysql, cockroachdb]}},
+                                         validate = {enum, [pgsql, mysql, cockroachdb]}},
                  <<"keepalive_interval">> => #option{type = integer,
                                                      validate = positive},
                  <<"query_timeout">> => #option{type = integer,
                                                 validate = non_negative},
                  <<"max_start_interval">> => #option{type = integer,
                                                      validate = positive},
-
-                 % odbc
-                 <<"settings">> => #option{type = string},
 
                  % mysql, pgsql, cockroachdb
                  <<"host">> => #option{type = string,
@@ -597,14 +593,14 @@ outgoing_pool_connection(<<"redis">>) ->
                                        validate = port},
                  <<"database">> => #option{type = integer,
                                            validate = non_negative},
+                 <<"username">> => #option{type = string},
                  <<"password">> => #option{type = string},
                  <<"tls">> => tls([client])
                 },
        include = always,
        defaults = #{<<"host">> => "127.0.0.1",
                     <<"port">> => 6379,
-                    <<"database">> => 0,
-                    <<"password">> => ""}
+                    <<"database">> => 0}
       }.
 
 cassandra_server() ->
@@ -632,6 +628,15 @@ sql_tls() ->
 sql_tls_extra() ->
     #section{items = #{<<"required">> => #option{type = boolean}}}.
 
+%% path: outgoing_pools.rabbit.*.connection.reconnect
+rabbit_reconnect() ->
+    #section{items = #{<<"attempts">> => #option{type = integer, validate = non_negative},
+                       <<"delay">> => #option{type = integer, validate = non_negative}},
+             defaults = #{<<"attempts">> => 0,
+                          <<"delay">> => 2000 % milliseconds
+                         },
+             include = always}.
+
 %% TLS options
 
 tls(Entities) when is_list(Entities) ->
@@ -655,7 +660,8 @@ tls(common) ->
                       },
              defaults = #{<<"verify_mode">> => peer,
                           <<"disconnect_on_failure">> => true,
-                          <<"crl_files">> => []}};
+                          <<"crl_files">> => []},
+             process = fun validate_tls_options/1};
 tls(server) ->
     #section{items = #{<<"dhfile">> => #option{type = string, validate = filename},
                        <<"early_data">> => #option{type = boolean},
@@ -665,14 +671,19 @@ tls(client) ->
     #section{items = #{<<"server_name_indication">> => server_name_indication()}};
 tls(xmpp) ->
     #section{items = #{<<"mode">> => #option{type = atom,
-                                             validate = {enum, [tls, starttls, starttls_required]}}},
-             defaults = #{<<"mode">> => starttls}
+                                             validate = {enum, [tls, starttls, starttls_required]}},
+                       <<"keep_secrets">> => #option{type = boolean}
+                      },
+             defaults = #{<<"mode">> => starttls,
+                          <<"keep_secrets">> => false}
             };
 %% For XMPP components:
 tls(xmpp_tls) ->
     #section{items = #{<<"mode">> => #option{type = atom,
-                                             validate = {enum, [tls, starttls, starttls_required]}}},
-             defaults = #{<<"mode">> => tls}
+                                             validate = {enum, [tls, starttls, starttls_required]}},
+                       <<"keep_secrets">> => #option{type = boolean}},
+             defaults = #{<<"mode">> => tls,
+                          <<"keep_secrets">> => false}
             }.
 
 server_name_indication() ->
@@ -697,8 +708,9 @@ services() ->
       }.
 
 configurable_services() ->
-    [service_mongoose_system_metrics,
+    [service_bosh,
      service_domain_db,
+     service_mongoose_system_metrics,
      service_translations].
 
 %% path: (host_config[].)modules
@@ -716,14 +728,16 @@ configurable_modules() ->
     [mod_adhoc,
      mod_auth_token,
      mod_blocking,
-     mod_bosh,
+     mod_blocklist,
      mod_cache_users,
      mod_caps,
      mod_carboncopy,
      mod_csi,
      mod_disco,
+     mod_domain_isolation,
      mod_event_pusher,
      mod_extdisco,
+     mod_external_filter,
      mod_fast_auth_token,
      mod_global_distrib,
      mod_http_upload,
@@ -750,8 +764,7 @@ configurable_modules() ->
      mod_stream_management,
      mod_time,
      mod_vcard,
-     mod_version,
-     mod_domain_isolation].
+     mod_version].
 
 %% path: (host_config[].)modules.*.iqdisc
 iqdisc() ->
@@ -931,7 +944,7 @@ process_dynamic_domains(Items) ->
                     Items;
                 {Methods, Modules} ->
                     error(#{what => dynamic_domains_not_supported,
-                            text => ("Dynamic modules not supported by the specified authentication "
+                            text => ("Dynamic domains not supported by the specified authentication "
                                      "methods and/or extension modules"),
                             unsupported_auth_methods => Methods,
                             unsupported_modules => Modules})
@@ -958,6 +971,88 @@ process_shapers(Items) ->
                              "You need to define them in the 'shaper' section."),
                     undefined_shapers => UndefinedShapers})
     end.
+
+%% @doc Check that all backends requiring an internal database have it configured.
+%% Called from mongoose_config_parser after module/service dependency resolution.
+-spec validate_backend_databases([{mongoose_config:key(), mongoose_config:value()}]) -> ok.
+validate_backend_databases(Items) ->
+    InternalDBs = proplists:get_value(internal_databases, Items, #{}),
+    Backends = collect_backends(Items),
+    Missing = lists:filtermap(
+                fun({Source, Key, Backend, HT}) ->
+                        case backend_to_internal_db(Backend) of
+                            undefined -> false;
+                            DB -> case maps:is_key(DB, InternalDBs) of
+                                      true -> false;
+                                      false -> {true, #{source => Source, option => Key,
+                                                        backend => Backend, host_type => HT,
+                                                        required_db => DB}}
+                                  end
+                        end
+                end, Backends),
+    case Missing of
+        [] ->
+            ok;
+        _ ->
+            error({config_error,
+                   "Some backends require internal databases that are not configured",
+                   [#{reason => backend_requires_internal_database,
+                      class => error,
+                      what => backend_requires_internal_database,
+                      text => "Add the required databases to the 'internal_databases' section.",
+                      missing => Missing}]})
+    end.
+
+collect_backends(Items) ->
+    collect_module_backends(Items) ++
+    collect_service_backends(Items) ++
+    collect_global_backends(Items) ++
+    collect_auth_backends(Items).
+
+collect_module_backends(Items) ->
+    lists:flatmap(
+      fun({{modules, HT}, ModulesMap}) ->
+              lists:flatmap(
+                fun({Mod, Opts}) ->
+                        [{Mod, Key, V, HT} || Key <- gen_mod:backend_opts(Mod),
+                                               V <- [maps:get(Key, Opts, undefined)],
+                                               V =/= undefined]
+                end, maps:to_list(ModulesMap));
+         (_) -> []
+      end, Items).
+
+collect_service_backends(Items) ->
+    ServicesMap = proplists:get_value(services, Items, #{}),
+    lists:filtermap(
+      fun({Service, Opts}) ->
+              case maps:get(backend, Opts, undefined) of
+                  undefined -> false;
+                  V -> {true, {Service, backend, V, global}}
+              end
+      end, maps:to_list(ServicesMap)).
+
+collect_global_backends(Items) ->
+    lists:filtermap(
+      fun({Key, Value}) when Key =:= sm_backend;
+                              Key =:= component_backend;
+                              Key =:= s2s_backend ->
+              {true, {general, Key, Value, global}};
+         (_) -> false
+      end, Items).
+
+%% Only anonymous auth has a backend option. Skip mnesia because
+%% ejabberd_auth_anonymous_mnesia creates its own RAM-copy tables
+%% and works without [internal_databases.mnesia]
+collect_auth_backends(Items) ->
+    lists:filtermap(
+      fun({{auth, HT}, #{anonymous := #{backend := Backend}}}) when Backend =/= mnesia ->
+              {true, {anonymous, backend, Backend, HT}};
+         (_) -> false
+      end, Items).
+
+backend_to_internal_db(mnesia) -> mnesia;
+backend_to_internal_db(cets) -> cets;
+backend_to_internal_db(_) -> undefined.
 
 unsupported_auth_methods(KVs) ->
     [Method || Method <- extract_auth_methods(KVs),
@@ -1047,7 +1142,7 @@ check_auth_method(Method, Opts) ->
 
 process_pool([Tag, Type | _], AllOpts = #{scope := ScopeIn, connection := Connection}) ->
     Scope = pool_scope(ScopeIn),
-    Opts = maps:without([scope, host, connection], AllOpts),
+    Opts = verify_pool_strategy(maps:without([scope, host, connection], AllOpts)),
     #{type => b2a(Type),
       scope => Scope,
       tag => b2a(Tag),
@@ -1058,8 +1153,16 @@ process_host_config_pool([Tag, Type, _Pools, {host, HT} | _], AllOpts = #{connec
     #{type => b2a(Type),
       scope => HT,
       tag => b2a(Tag),
-      opts => maps:remove(connection, AllOpts),
+      opts => verify_pool_strategy(maps:remove(connection, AllOpts)),
       conn_opts => Connection}.
+
+verify_pool_strategy(Opts = #{strategy := Strategy, max_worker_queue_len := _})
+  when Strategy =/= best_worker ->
+    error(#{what => invalid_worker_pool_strategy_option,
+            text => <<"max_worker_queue_len can only be set for the best_worker strategy">>,
+            pool_options => Opts});
+verify_pool_strategy(Opts) ->
+    Opts.
 
 pool_scope(host) -> host_type;
 pool_scope(host_type) -> host_type;
@@ -1096,3 +1199,17 @@ ip_version(T) when tuple_size(T) =:= 8 -> inet6.
 
 process_infinity_as_zero(infinity) -> 0;
 process_infinity_as_zero(Num) -> Num.
+
+%% Validate that certfile and keyfile are separate files
+%% OTP 28.1+ doesn't allow concatenated certificate with private key
+validate_tls_options(TLSConfig) ->
+    case maps:is_key(certfile, TLSConfig) andalso not maps:is_key(keyfile, TLSConfig) of
+        true ->
+            error(#{what => tls_certfile_without_keyfile,
+                    text => <<"TLS certfile provided without a separate keyfile. "
+                              "Since OTP 28.1, concatenated certificate and private key files "
+                              "are not supported. Please provide a separate keyfile option.">>,
+                    certfile => maps:get(certfile, TLSConfig)});
+        false ->
+            TLSConfig
+    end.

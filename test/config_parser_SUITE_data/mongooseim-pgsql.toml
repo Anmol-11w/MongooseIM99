@@ -19,11 +19,11 @@
   transport.num_acceptors = 10
   transport.max_connections = 1024
 
-  [[listen.http.handlers.mod_bosh]]
+  [[listen.http.handlers.mongoose_bosh_handler]]
     host = "_"
     path = "/http-bind"
 
-  [[listen.http.handlers.mod_websockets]]
+  [[listen.http.handlers.mongoose_websocket_handler]]
     host = "_"
     path = "/ws-xmpp"
 
@@ -36,46 +36,16 @@
   tls.password = ""
   tls.verify_mode = "none"
 
-  [[listen.http.handlers.mongoose_admin_api]]
-    host = "localhost"
-    path = "/api"
-    username = "ala"
-    password = "makotaipsa"
-
-  [[listen.http.handlers.mod_bosh]]
+  [[listen.http.handlers.mongoose_bosh_handler]]
     host = "_"
     path = "/http-bind"
 
-  [[listen.http.handlers.mod_websockets]]
+  [[listen.http.handlers.mongoose_websocket_handler]]
     host = "_"
     path = "/ws-xmpp"
     timeout = "infinity"
     ping_rate = 120_000
     max_stanza_size = 100
-
-[[listen.http]]
-  port = 8088
-  ip_address = "127.0.0.1"
-  transport.num_acceptors = 10
-  transport.max_connections = 1024
-
-  [[listen.http.handlers.mongoose_admin_api]]
-    host = "localhost"
-    path = "/api"
-
-[[listen.http]]
-  port = 8089
-  transport.num_acceptors = 10
-  transport.max_connections = 1024
-  protocol.compress = true
-  tls.certfile = "priv/cert.pem"
-  tls.keyfile = "priv/dc1.pem"
-  tls.password = ""
-  tls.verify_mode = "none"
-
-  [[listen.http.handlers.mongoose_client_api]]
-    host = "_"
-    path = "/api"
 
 [[listen.c2s]]
   port = 5222
@@ -99,6 +69,7 @@
   max_stanza_size = 131072
   tls.dhfile = "priv/dh.pem"
   tls.certfile = "priv/cert.pem"
+  tls.keyfile = "priv/dc1.pem"
   tls.cacertfile = "priv/ca.pem"
 
 [[listen.component]]
@@ -146,6 +117,10 @@
     tls.cacertfile = "priv/ca.pem"
     tls.server_name_indication.enabled = false
 
+[services.service_bosh]
+  inactivity = 30
+  server_acks = true
+
 [services.service_mongoose_system_metrics]
   initial_report = 300_000
   periodic_report = 10_800_000
@@ -189,8 +164,6 @@
 [modules.mod_vcard]
   backend = "rdbms"
   host = "vjud.@HOST@"
-
-[modules.mod_bosh]
 
 [modules.mod_carboncopy]
 

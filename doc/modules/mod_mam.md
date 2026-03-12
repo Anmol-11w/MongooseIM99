@@ -9,7 +9,7 @@ MongooseIM is compatible with MAM 0.4-1.1.0.
 
 Configure MAM with different storage backends:
 
-* RDBMS (databases like MySQL, PostgreSQL, CockroachDB, MS SQL Server)
+* RDBMS (databases like MySQL, PostgreSQL, CockroachDB)
 * Cassandra (NoSQL)
 * ElasticSearch (NoSQL)
 
@@ -76,6 +76,8 @@ Database backend to use.
 * **Example:** `no_stanzaid_element = true`
 
 Do not add a `<stanza-id/>` element from MAM v1.1.0.
+
+_This setting may be overridden by `mod_stanzaid`._
 
 ### `modules.mod_mam.is_archivable_message`
 * **Syntax:** non-empty string
@@ -154,6 +156,8 @@ When enabled, MAM will store groupchat messages in recipients' individual archiv
 * **Example:** `modules.mod_mam.pm.same_mam_id_for_peers = true`
 
 When enabled, MAM will set the same MAM ID for both sender and recipient. This can be useful in combination with [retraction on the stanza-id](#retraction-on-the-stanza-id). Note that this might not work with clients across federation, as the recipient might not implement the same retraction, nor the same IDs.
+
+_This setting may be overridden by `mod_stanzaid`._
 
 ### Enable MUC message archive
 
@@ -345,9 +349,6 @@ See [Message Archive Management extensions](../open-extensions/mam.md).
 * **Example:** `modules.mod_mam.delete_domain_limit = 10000`
 
 Domain deletion can be an expensive operation, as it requires to delete potentially many thousands of records from the DB. By default, the delete operation deletes everything in a transaction, but it might be desired, to handle timeouts and table locks more gracefully, to delete the records in batches. This limit establishes the size of the batch.
-
-!!! Note
-    Not supported by MSSQL.
 
 #### `modules.mod_mam.db_jid_format`
 

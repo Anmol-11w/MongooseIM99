@@ -23,6 +23,7 @@
 {suites, "tests", connect_SUITE}.
 {suites, "tests", disco_and_caps_SUITE}.
 {suites, "tests", extdisco_SUITE}.
+{suites, "tests", external_filter_SUITE}.
 {suites, "tests", gdpr_SUITE}.
 {suites, "tests", graphql_SUITE}.
 {suites, "tests", graphql_sse_SUITE}.
@@ -45,6 +46,7 @@
 {suites, "tests", graphql_vcard_SUITE}.
 {suites, "tests", graphql_http_upload_SUITE}.
 {suites, "tests", graphql_metric_SUITE}.
+{suites, "tests", graphql_blocklist_SUITE}.
 {suites, "tests", inbox_SUITE}.
 {suites, "tests", inbox_extensions_SUITE}.
 {suites, "tests", login_SUITE}.
@@ -60,15 +62,14 @@
 {suites, "tests", mod_event_pusher_sns_SUITE}.
 {suites, "tests", mod_http_upload_SUITE}.
 {suites, "tests", mod_ping_SUITE}.
+{suites, "tests", mod_stanzaid_SUITE}.
 {suites, "tests", mod_time_SUITE}.
 {suites, "tests", mod_version_SUITE}.
 {suites, "tests", mongoose_cassandra_SUITE}.
 {suites, "tests", mongoose_elasticsearch_SUITE}.
 {suites, "tests", mongooseimctl_SUITE}.
 {suites, "tests", muc_SUITE}.
-{suites, "tests", muc_http_api_SUITE}.
 {suites, "tests", muc_light_SUITE}.
-{suites, "tests", muc_light_http_api_SUITE}.
 {suites, "tests", muc_light_legacy_SUITE}.
 {suites, "tests", oauth_SUITE}.
 {suites, "tests", offline_SUITE}.
@@ -85,8 +86,6 @@
 {suites, "tests", push_pubsub_SUITE}.
 {suites, "tests", race_conditions_SUITE}.
 {suites, "tests", rdbms_SUITE}.
-{suites, "tests", rest_SUITE}.
-{suites, "tests", rest_client_SUITE}.
 {suites, "tests", sasl_SUITE}.
 {suites, "tests", sasl_external_SUITE}.
 {suites, "tests", sasl2_SUITE}.
@@ -114,7 +113,6 @@
 {suites, "tests", jingle_SUITE}.
 {suites, "tests", last_SUITE}.
 {suites, "tests", local_iq_SUITE}.
-{suites, "tests", metrics_api_SUITE}.
 {suites, "tests", mod_global_distrib_SUITE}.
 {suites, "tests", persistent_cluster_id_SUITE}.
 {suites, "tests", s2s_SUITE}.
