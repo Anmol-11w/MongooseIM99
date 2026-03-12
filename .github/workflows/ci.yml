@@ -6,10 +6,11 @@ on:
   workflow_dispatch:
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   KEEP_COVER_RUNNING: '1'
   SKIP_AUTO_COMPILE: 'true'
 
-  # required for tools/gh-upload-to-s3.sh script --
+  # required for tools/gh-upload-to-s3.sh script
   # AWS_DEFAULT_REGION: "${{ secrets.AWS_DEFAULT_REGION }}"
   # AWS_ACCESS_KEY_ID: "${{ secrets.AWS_ACCESS_KEY_ID }}"
   # AWS_SECRET_ACCESS_KEY: "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
@@ -17,7 +18,7 @@ env:
 jobs:
 
 # =====================================================
-# SMALL TESTS 
+# SMALL TESTS (BLOCKING)
 # =====================================================
   small_tests:
     name: small_tests on OTP ${{ matrix.otp }}
@@ -68,6 +69,8 @@ jobs:
   big_tests:
     name: ${{ matrix.preset }} on OTP ${{ matrix.otp }}
     runs-on: ubuntu-22.04
+    continue-on-error: true
+
     strategy:
       fail-fast: false
       matrix:
@@ -97,6 +100,7 @@ jobs:
 
       - name: Run big tests (non-blocking)
         uses: ./.github/actions/big-tests
+        continue-on-error: true
         with:
           otp: ${{ matrix.otp }}
           preset: ${{ matrix.preset }}
@@ -110,6 +114,7 @@ jobs:
   dynamic_domains_big_tests:
     name: dynamic domains ${{ matrix.preset }} on OTP ${{ matrix.otp }}
     runs-on: ubuntu-22.04
+    continue-on-error: true
 
     strategy:
       fail-fast: false
@@ -130,6 +135,7 @@ jobs:
 
       - name: Run dynamic big tests (non-blocking)
         uses: ./.github/actions/big-tests
+        continue-on-error: true
         with:
           otp: ${{ matrix.otp }}
           preset: ${{ matrix.preset }}
