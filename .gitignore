@@ -145,3 +145,6 @@ doc/graphql-api/*.html
 .vscode
 .venv/
 .tool-versions
+coverage-full/
+lcov-*.info
+lcov-full.info
