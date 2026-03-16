@@ -20,7 +20,7 @@ env:
 jobs:
 
 # =====================================================
-# SMALL TESTS (BLOCKING)
+# SMALL TESTS 
 # =====================================================
   small_tests:
     name: small_tests on OTP ${{ matrix.otp }}
