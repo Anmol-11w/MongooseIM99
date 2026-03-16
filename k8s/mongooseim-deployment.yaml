@@ -20,16 +20,11 @@ spec:
 
       containers:
         - name: mongooseim
-          # change the tag to pin a specific build, e.g. sha-f7a576c or run-13
           image: ghcr.io/anmol-11w/mongooseim99:latest
-          imagePullPolicy: Always        # always fetch the latest tag on pod start
+          imagePullPolicy: Always        
           ports:
             - name: xmpp-client
-              containerPort: 5222
-            - name: xmpp-s2s
-              containerPort: 5269
-            - name: admin-http
-              containerPort: 8088
+              containerPort: 7070
           resources:
             requests:
               cpu: "250m"
@@ -39,12 +34,12 @@ spec:
               memory: "1Gi"
           livenessProbe:
             tcpSocket:
-              port: 5222
+              port: 7070
             initialDelaySeconds: 30
             periodSeconds: 15
           readinessProbe:
             tcpSocket:
-              port: 5222
+              port: 7070
             initialDelaySeconds: 20
             periodSeconds: 10
 
@@ -59,11 +54,5 @@ spec:
   type: LoadBalancer          # use NodePort if no cloud load balancer
   ports:
     - name: xmpp-client
-      port: 5222
-      targetPort: 5222
-    - name: xmpp-s2s
-      port: 5269
-      targetPort: 5269
-    - name: admin-http
-      port: 8088
-      targetPort: 8088
+      port: 7070
+      targetPort: 7070
