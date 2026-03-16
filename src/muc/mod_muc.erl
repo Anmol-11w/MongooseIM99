@@ -38,8 +38,10 @@
          start/2,
          stop/1,
          supported_features/0,
+         backend_opts/0,
          config_spec/0,
          instrumentation/1,
+         reported_module_options/2,
          process_room_affiliation/1,
          room_destroyed/4,
          store_room/4,
@@ -126,6 +128,7 @@
                   from_jid := jid:jid(),
                   room_jid := jid:jid(),
                   affiliation := affiliation(),
+                  stable_stanza_id => pos_integer() | undefined,
                   role := role(),
                   timestamp := integer()
        }.
@@ -193,6 +196,10 @@ start_server(HostType, Opts) ->
 
 assert_server_running(HostType) ->
     true = is_pid(whereis(gen_mod:get_module_proc(HostType, ?PROCNAME))).
+
+-spec backend_opts() -> [gen_mod:opt_key()].
+backend_opts() ->
+    [backend, online_backend].
 
 -spec config_spec() -> mongoose_config_spec:config_section().
 config_spec() ->
@@ -655,7 +662,8 @@ route_to_online_room(Pid, {From, To, Acc, Packet}) ->
     {_, _, Nick} = jid:to_lower(To),
     ok = mod_muc_room:route(Pid, From, Nick, Acc, Packet).
 
--spec get_registered_room_or_route_error(muc_host(), room(), from_to_packet(), state()) -> {ok, pid()} | {route_error, binary()}.
+-spec get_registered_room_or_route_error(muc_host(), room(), from_to_packet(), state()) ->
+    {ok, pid()} | {route_error, binary()}.
 get_registered_room_or_route_error(MucHost, Room, {From, To, Acc, Packet}, State) ->
     case {Packet#xmlel.name, exml_query:attr(Packet, <<"type">>, <<>>)} of
         {<<"presence">>, <<>>} ->
@@ -1279,6 +1287,11 @@ count_rooms(Pid, Counts = #{online := Online, hibernated := Hibernated}) ->
 -spec config_metrics(mongooseim:host_type()) -> [{gen_mod:opt_key(), gen_mod:opt_value()}].
 config_metrics(HostType) ->
     mongoose_module_metrics:opts_for_module(HostType, ?MODULE, [backend, online_backend]).
+
+-spec reported_module_options(mongooseim:host_type(), gen_mod:module_opts()) ->
+          [{gen_mod:opt_key(), gen_mod:opt_value()}].
+reported_module_options(_HostType, Opts) ->
+    [{Key, maps:get(Key, Opts)} || Key <- [backend, online_backend, db_pool], maps:is_key(Key, Opts)].
 
 -spec hooks(mongooseim:host_type()) -> gen_hook:hook_list().
 hooks(HostType) ->

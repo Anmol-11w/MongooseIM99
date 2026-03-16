@@ -85,10 +85,14 @@
 -define(NS_ESL_INBOX_CONVERSATION, <<"erlang-solutions.com:xmpp:inbox:0#conversation">>).
 
 -type inbox_query_params() :: #{
-        order => asc | desc | undefined, % by timestamp
-        start => binary() | undefined, % ISO timestamp
-        'end' => binary() | undefined, % ISO timestamp
-        box => all | inbox | archive | other,
+        order => asc | desc, % by timestamp
+        start => binary(), % ISO timestamp
+        'end' => binary(), % ISO timestamp
+        before => binary(), % ISO timestamp
+        'after' => binary(), % ISO timestamp
+        limit => non_neg_integer(),
+        hidden_read => boolean(),
+        box => all | inbox | archive | other | bin,
         archive => boolean()
        }.
 
@@ -144,8 +148,7 @@ skip_or_run_inbox_tests(TestCases) ->
     end.
 
 maybe_run_in_parallel(Gs) ->
-    NewParams = distributed_helper:maybe_parallel_group(),
-    ct_helper:add_params_to_list(Gs, NewParams, non_parallel_groups()).
+    ct_helper:add_params_to_list(Gs, [parallel], non_parallel_groups()).
 
 non_parallel_groups() ->
     [muclight_config, bin, regular, async_pools].
@@ -321,7 +324,7 @@ clear_inboxes(UserList) ->
     Usernames = [{escalus_users:get_username(escalus_users:get_users(UserList),U),
                   escalus_users:get_server(escalus_users:get_users(UserList),U)}
                  || U <- UserList],
-    [escalus_ejabberd:rpc(mod_inbox_utils, clear_inbox, [HostType, User, Server]) || {User, Server} <- Usernames].
+    [distributed_helper:rpc(distributed_helper:mim(), mod_inbox_utils, clear_inbox, [HostType, User, Server]) || {User, Server} <- Usernames].
 
 reload_inbox_option(Config, KeyValueList) ->
     HostType = domain_helper:host_type(mim),
@@ -499,7 +502,7 @@ make_inbox_form(GetParams, true) ->
 
 make_inbox_form(GetParams, false) ->
     Map = maps:map(fun (K, V) ->
-                           escalus_stanza:field_el(K, <<"text-single">>, V) end,
+                           escalus_stanza:field_el(to_binary(K), <<"text-single">>, V) end,
                    GetParams),
     Fields = maps:values(Map),
     escalus_stanza:x_data_form(<<"submit">>, Fields).
@@ -513,7 +516,7 @@ bool_to_bin(true) -> <<"true">>;
 bool_to_bin(false) -> <<"false">>.
 
 -spec given_conversations_between(From :: escalus:client(), ToList :: [escalus:client()]) ->
-    #{ escalus:client() => [#conv{}] }.
+    #{ escalus:client() := [#conv{}], time_before := binary()}.
 given_conversations_between(From, ToList) ->
     lists:foldl(fun(N, #{ From := FromConvs } = Convs) ->
                         Ord = integer_to_binary(N),
@@ -774,7 +777,7 @@ to_bare_lower(User) ->
 %% Returns mim1-side time in ISO format
 -spec server_side_time() -> binary().
 server_side_time() ->
-    USec = escalus_ejabberd:rpc(erlang, system_time, [microsecond]),
+    USec = distributed_helper:rpc(distributed_helper:mim(), erlang, system_time, [microsecond]),
     TS = calendar:system_time_to_rfc3339(USec, [{offset, "Z"}, {unit, microsecond}]),
     list_to_binary(TS).
 
@@ -804,7 +807,7 @@ key_to_binary(count) ->
     <<"count">>.
 
 send_msg(From, To) ->
-    send_msg(From, To, "Test").
+    send_msg(From, To, <<"Test">>).
 
 send_msg(From, To, Body) ->
     MsgId = escalus_stanza:id(),
@@ -816,7 +819,7 @@ send_msg(From, To, Body) ->
 
 
 send_and_mark_msg(From, To) ->
-    send_and_mark_msg(From, To, "Test").
+    send_and_mark_msg(From, To, <<"Test">>).
 
 send_and_mark_msg(From, To, Body) ->
     Msg = send_msg(From, To, Body),
@@ -846,7 +849,7 @@ assert_invalid_form(User, Stanza, Field, Value) ->
     assert_message_content(ErrorMsg, Field, Value).
 
 assert_message_content(Msg, Field, Value) ->
-    ?assertNotEqual(nomatch, binary:match(Msg, Field)),
+    ?assertNotEqual(nomatch, binary:match(Msg, to_binary(Field))),
     ?assertNotEqual(nomatch, binary:match(Msg, Value)).
 
 assert_async_request_event(TS) ->
@@ -860,3 +863,6 @@ assert_async_request_event(TS) ->
 extract_user_specs(User) ->
     {client,_,_,_,_,UserSpecs} = User,
     {User, UserSpecs}.
+
+to_binary(A) when is_atom(A) -> atom_to_binary(A);
+to_binary(B) when is_binary(B) -> B.

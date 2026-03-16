@@ -85,12 +85,10 @@ function last_ct_run_name
 }
 
 
-function small_suite_path
+function last_small_ct_run_name
 {
     if [ -d _build/test/logs ]; then
-        cd _build/test/logs
-        ls -t -1 ct_run.mongooseim@localhost.*/lib.mongooseim.logs/run.*/suite.log.html
-        cd ../../..
+        ls -1 -t _build/test/logs/ | grep ct_run | head -n1
     fi
 }
 
@@ -106,8 +104,8 @@ function ct_small_url
 {
     local CT_REPORTS=$(ct_reports_dir)
     local SMALL_TESTS_URL="$(archive_reader_url small ${CT_REPORTS})"
-    local SUFFIX=$(small_suite_path)
-    echo "$SMALL_TESTS_URL/$SUFFIX"
+    local RUN_PART=$(echo "$(last_small_ct_run_name)" | sed "s/@/%40/g")
+    echo "$SMALL_TESTS_URL/$RUN_PART/index.html"
 }
 
 function reports_url
@@ -139,13 +137,16 @@ fi
 
 COUNTERS_FILE=/tmp/ct_stats_vars
 COUNTERS_BODY=""
+STATUS_LINE=""
 if [ -f "$COUNTERS_FILE" ]; then
     . "$COUNTERS_FILE"
     COUNTERS_BODY="**OK: $CT_COUNTER_OK** "
     if [ "$CT_COUNTER_FAILED" != "0" ]; then
         COUNTERS_BODY="$COUNTERS_BODY/ **Failed: $CT_COUNTER_FAILED** "
+        STATUS_LINE="Status: 🔴 Failed"$'\n'
     else
         COUNTERS_BODY="$COUNTERS_BODY/ Failed: 0 "
+        STATUS_LINE="Status: 🟢 Passed"$'\n'
     fi
     if [ "$CT_COUNTER_USER_SKIPPED" != "0" ]; then
         COUNTERS_BODY="$COUNTERS_BODY/ **User-skipped: $CT_COUNTER_USER_SKIPPED** "
@@ -173,14 +174,26 @@ JOB_URL="$CIRCLE_BUILD_URL"
 DESC_BODY="[$CIRCLE_JOB]($JOB_URL) / $PRESET / $CIRCLE_SHA1"$'\n'
 # This file is created by ct_markdown_errors_hook
 ERRORS_BODY="$(cat /tmp/ct_markdown || echo '/tmp/ct_markdown missing')"
-BODY="${DESC_BODY}${REPORTS_URL_BODY}${COUNTERS_BODY}${ERRORS_BODY}${TRUNCATED_BODY}"
+
+# One persistent marker per PR so subsequent commits edit the same comment
+COMMENT_MARKER="<!-- circleci-comment:pr-${PR_NUM} -->"
+SECTION_BEGIN="<!-- circleci-section:${CIRCLE_JOB}:${PRESET}:begin -->"
+SECTION_END="<!-- circleci-section:${CIRCLE_JOB}:${PRESET}:end -->"
+
+SECTION_BODY="${DESC_BODY}${STATUS_LINE}${REPORTS_URL_BODY}${COUNTERS_BODY}${ERRORS_BODY}${TRUNCATED_BODY}"$'\n'
+SECTION="${SECTION_BEGIN}"$'\n'"---"$'\n'"${SECTION_BODY}"$'\n'"${SECTION_END}"$'\n'
+
+# Body for a brand new comment
+BODY_NEW="CircleCI results for $CIRCLE_SHA1"$'\n'$'\n'"${SECTION}"$'\n'"${COMMENT_MARKER}"$'\n'
+
+BODY_TO_PUBLISH="$BODY_NEW"
 
 function post_new_comment
 {
 # Create a comment GitHub API doc
 # https://developer.github.com/v3/issues/comments/#create-a-comment
 echo "Posting a new comment"
-POST_BODY=$(BODY_ENV="$BODY" jq -n '{body: env.BODY_ENV}')
+POST_BODY=$(BODY_ENV="$BODY_TO_PUBLISH" jq -n '{body: env.BODY_ENV}')
 curl -o /dev/null -i \
     -H "Authorization: token $COMMENTER_GITHUB_TOKEN" \
     -H "Content-Type: application/json" \
@@ -188,19 +201,13 @@ curl -o /dev/null -i \
     https://api.github.com/repos/$REPO_SLUG/issues/$PR_NUM/comments
 }
 
-function append_comment
+function update_comment
 {
-# Concat old comment text and some extra text
-# Keep a line separator between them
-# $'\n' is a new line in bash
-#
 # Edit commment GitHub API doc
 # https://developer.github.com/v3/issues/comments/#edit-a-comment
 COMMENT_ID="$1"
-echo "Patch comment $COMMENT_ID"
-BODY_FROM_GH="$(cat /tmp/gh_comment | jq -r .body)"
-BODY="${BODY_FROM_GH}"$'\n'$'\n'"---"$'\n'$'\n'"${BODY}"
-PATCH_BODY=$(echo "${BODY}" | jq -Rn '{body: [inputs] | join("\n")}')
+echo "Updating comment $COMMENT_ID"
+PATCH_BODY=$(BODY_ENV="$BODY_TO_PUBLISH" jq -n '{body: env.BODY_ENV}')
 curl -o /dev/null -i \
     -H "Authorization: token $COMMENTER_GITHUB_TOKEN" \
     -H "Content-Type: application/json" \
@@ -230,13 +237,48 @@ get_comments_page 1
 jq -s "map(.) | add" /tmp/gh_comments_page* > /tmp/gh_comments
 
 # Filter out all comments for a particular user
-# Then filter out all comments that have a git commit rev in the body text
-# Then take first comment (we don't expect more comments anyway)
-cat /tmp/gh_comments | jq "map(select(.user.login == \"$COMMENTER_GITHUB_USER\")) | map(select(.body | contains(\"$CIRCLE_SHA1\")))[0]" > /tmp/gh_comment
+# Then filter out all comments that have our marker in the body text (new behavior)
+# Then take the most recent matching comment.
+cat /tmp/gh_comments | jq "
+    map(select(.user.login == \"$COMMENTER_GITHUB_USER\"))
+    | map(select(.body | contains(\"$COMMENT_MARKER\")))
+    | sort_by(.created_at)
+    | last
+" > /tmp/gh_comment
 COMMENT_ID=$(cat /tmp/gh_comment | jq .id)
 
 if [ "$COMMENT_ID" = "null" ]; then
     post_new_comment
 else
-    append_comment "$COMMENT_ID"
+    EXISTING_BODY=$(cat /tmp/gh_comment | jq -r '.body // ""')
+    BODY_TO_PUBLISH=$(EXISTING_BODY_ENV="$EXISTING_BODY" \
+        SECTION_BEGIN_ENV="$SECTION_BEGIN" \
+        SECTION_END_ENV="$SECTION_END" \
+        SECTION_ENV="$SECTION" \
+        COMMENT_MARKER_ENV="$COMMENT_MARKER" \
+        jq -rn '
+            def rtrim: sub("\n+$"; "");
+            def escape_regex: gsub("([\\\\^$.|?*+()\\[\\]{}])"; "\\\\$1");
+            . as $null
+            | (env.EXISTING_BODY_ENV) as $existing
+            | (env.SECTION_BEGIN_ENV) as $begin
+            | (env.SECTION_END_ENV) as $end
+            | (env.SECTION_ENV | rtrim) as $section
+            | (env.COMMENT_MARKER_ENV) as $marker
+
+            | ($begin | escape_regex) as $begin_re
+            | ($end | escape_regex) as $end_re
+            | ("(?s)" + $begin_re + ".*" + $end_re) as $pattern
+
+            | if ($existing | test($pattern)) then
+                $existing | sub($pattern; $section)
+              elif ($existing | contains($marker)) then
+                (($existing | split($marker)) as $parts
+                 | ($parts[0] | rtrim) + "\n\n" + $section + "\n\n" + $marker + ($parts[1] // ""))
+              else
+                (($existing | rtrim) + "\n\n" + $section + "\n\n" + $marker + "\n")
+              end
+            | if endswith("\n") then . else . + "\n" end
+        ')
+    update_comment "$COMMENT_ID"
 fi

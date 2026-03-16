@@ -8,6 +8,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("inbox.hrl").
 
+-dialyzer({nowarn_function, [pagination_error_conditions/1, returns_error_when_max_is_not_a_number/1]}).
+
 -define(ROOM_MARKERS_RESET, <<"room_markers_reset">>).
 -define(HOUR, 3600).
 -define(VALID_JID, <<"mike@localhost">>).
@@ -361,7 +363,7 @@ box_archived_entry_gets_active_for_the_receiver_on_new_message(Config) ->
         inbox_helper:check_inbox(Bob, [#conv{unread = 1, from = Alice, to = Bob, content = Body}]),
         set_inbox_properties(Bob, Alice, [{box, archive}]),
         % But then Alice keeps writing:
-        inbox_helper:send_msg(Alice, Bob, Body),
+        send_msg_expect_broadcast_and_receipt(Alice, Bob, Body),
         % Then the conversation is automatically in the inbox and not in the archive box
         inbox_helper:check_inbox(Bob, [#conv{unread = 2, from = Alice, to = Bob, content = Body}],
                                  #{box => inbox}),
@@ -377,6 +379,7 @@ box_archived_entry_gets_active_for_the_sender_on_new_message(Config) ->
         set_inbox_properties(Alice, Bob, [{box, archive}]),
         % But then Alice keeps writing
         inbox_helper:send_msg(Alice, Bob, Body),
+        wait_for_auto_unarchive_broadcast(Alice, Bob, true),
         % Then the conversation is automatically in the inbox and not in the archive box
         inbox_helper:check_inbox(Alice, [], #{box => archive}),
         inbox_helper:check_inbox(Alice, [#conv{unread = 0, from = Alice, to = Bob, content = Body}],
@@ -492,7 +495,7 @@ archive_archived_entry_gets_active_for_the_receiver_on_new_message(Config) ->
         inbox_helper:check_inbox(Bob, [#conv{unread = 1, from = Alice, to = Bob, content = Body}]),
         set_inbox_properties(Bob, Alice, [{archive, true}]),
         % But then Alice keeps writing:
-        inbox_helper:send_msg(Alice, Bob, Body),
+        send_msg_expect_broadcast_and_receipt(Alice, Bob, Body),
         % Then the conversation is automatically in the active and not in the archive box
         inbox_helper:check_inbox(Bob, [#conv{unread = 2, from = Alice, to = Bob, content = Body}],
                                  #{archive => false}),
@@ -508,11 +511,17 @@ archive_archived_entry_gets_active_for_the_sender_on_new_message(Config) ->
         set_inbox_properties(Alice, Bob, [{archive, true}]),
         % But then Alice keeps writing
         inbox_helper:send_msg(Alice, Bob, Body),
+        wait_for_auto_unarchive_broadcast(Alice, Bob, true),
         % Then the conversation is automatically in the active and not in the archive box
         inbox_helper:check_inbox(Alice, [], #{archive => true}),
         inbox_helper:check_inbox(Alice, [#conv{unread = 0, from = Alice, to = Bob, content = Body}],
                                  #{archive => false})
     end).
+
+wait_for_auto_unarchive_broadcast(User, Remote, ReadVal) ->
+    Properties = [{jid, escalus_utils:get_short_jid(Remote)},
+                  {box, inbox}, {archive, false}, {read, ReadVal}],
+    check_message_with_properties(User, undefined, Properties, #{}).
 
 archive_active_unread_entry_gets_archived_and_still_unread(Config) ->
     escalus:fresh_story(Config, [{alice, 1}, {bob, 1}], fun(Alice, Bob) ->
@@ -841,7 +850,7 @@ groupchat_setunread_stanza_sets_inbox(Config) ->
 %% Helpers
 %%--------------------------------------------------------------------
 
--type maybe_client() :: undefined | escalus:client().
+-type maybe_client() :: undefined | escalus:client() | binary().
 
 verify_rsm(#{respond_iq := Iq}) ->
     Set = exml_query:path(Iq, [{element_with_ns, <<"fin">>, inbox_helper:inbox_ns()},
@@ -852,12 +861,12 @@ verify_rsm(#{respond_iq := Iq}) ->
 to_int(Bin) ->
     calendar:rfc3339_to_system_time(binary_to_list(Bin), [{unit, microsecond}]).
 
--spec query_properties(escalus:client(), escalus:client(), proplists:proplist()) -> [exml:element()].
+-spec query_properties(escalus:client(), escalus:client(), proplists:proplist()) -> ok.
 query_properties(From, To, Expected) ->
     query_properties(From, To, Expected, none).
 
 -spec query_properties(escalus:client(), escalus:client(), proplists:proplist(), none | full_entry) ->
-    [exml:element()].
+    ok.
 query_properties(From, To, Expected, FullEntry) ->
     Stanza = make_inbox_get_properties(To, FullEntry),
     escalus:send(From, Stanza),
@@ -873,7 +882,7 @@ maybe_assert_full_entry(_, none) ->
 maybe_assert_full_entry(Props, full_entry) ->
     ?assertNotEqual(undefined, exml_query:path(Props, [{element, <<"forwarded">>}])).
 
--spec make_inbox_get_properties(escalus:client(), boolean()) -> exml:element().
+-spec make_inbox_get_properties(escalus:client(), none | full_entry) -> exml:element().
 make_inbox_get_properties(To, none) ->
     Query = escalus_stanza:query_el(inbox_helper:inbox_ns_conversation(), jid_attr(To), []),
     escalus_stanza:iq(<<"get">>, [Query]);
@@ -883,26 +892,36 @@ make_inbox_get_properties(To, full_entry) ->
     Query = escalus_stanza:query_el(inbox_helper:inbox_ns_conversation(), Attrs, []),
     escalus_stanza:iq(<<"get">>, [Query]).
 
--spec set_inbox_properties(escalus:client(), escalus:client(), proplists:proplist()) -> ok.
+-spec set_inbox_properties(escalus:client(), maybe_client(), proplists:proplist()) -> ok.
 set_inbox_properties(From, To, Properties) ->
     set_inbox_properties(From, To, Properties, #{}).
 
--spec set_inbox_properties(escalus:client(), escalus:client(), proplists:proplist(), map()) -> ok.
+-spec set_inbox_properties(escalus:client(), maybe_client(), proplists:proplist(), map()) -> ok.
 set_inbox_properties(From, To, Properties, QueryOpts) ->
     Stanza = make_inbox_iq_request_with_query_id(To, Properties, QueryOpts),
     escalus:send(From, Stanza),
     check_message_with_properties(From, Stanza, Properties, QueryOpts),
     check_iq_result_for_property(From, Stanza).
 
--spec check_message_with_properties(escalus:client(), exml:element(), proplists:proplist(), map()) -> ok.
+-spec check_message_with_properties(escalus:client(), exml:element() | undefined, proplists:proplist(), map()) -> true.
 check_message_with_properties(From, Stanza, Properties, QueryOpts) ->
     Message = escalus:wait_for_stanza(From),
+    check_message_pushed(Message, Stanza, Properties, QueryOpts).
+
+-spec check_message_pushed(exml:element(), exml:element() | undefined, proplists:proplist(), map()) -> true.
+check_message_pushed(Message, Stanza, Properties, QueryOpts) ->
     ?assert(escalus_pred:is_message(Message)),
-    ?assert(has_same_id(Stanza, Message)),
+    case Stanza of
+        undefined -> ok;
+        _ -> ?assert(has_same_id(Stanza, Message))
+    end,
     [X] = exml_query:subelements(Message, <<"x">>),
+    ok = assert_conversation_properties(X, Properties, QueryOpts),
+    true.
+
+assert_conversation_properties(X, Properties, QueryOpts) ->
     ?assertEqual(inbox_helper:inbox_ns_conversation(), exml_query:attr(X, <<"xmlns">>)),
     inbox_helper:maybe_check_queryid(X, QueryOpts),
-    % ?assertEqual(QueryId, exml_query:attr(X, <<"queryid">>)),
     lists:foreach(fun({Key, Val}) -> assert_property(X, Key, Val) end, Properties).
 
 -spec check_iq_result_for_property(escalus:client(), exml:element()) -> ok.
@@ -910,7 +929,7 @@ check_iq_result_for_property(From, Stanza) ->
     Result = escalus:wait_for_stanza(From),
     ?assert(escalus_pred:is_iq_result(Stanza, Result)).
 
--spec make_inbox_iq_request(maybe_client(), atom(), atom()) -> exml:element().
+-spec make_inbox_iq_request(maybe_client(), atom(), term()) -> exml:element().
 make_inbox_iq_request(ToClient, Key, Value) ->
     make_inbox_iq_request(ToClient, [{Key, Value}]).
 
@@ -935,7 +954,7 @@ inbox_iq(_, Query) ->
 assert_invalid_request(From, Stanza, Value) ->
     inbox_helper:assert_invalid_form(From, Stanza, Value, Value).
 
--spec jid_attr(maybe_client()) -> proplists:proplist().
+-spec jid_attr(maybe_client()) -> map().
 jid_attr(undefined) -> #{};
 jid_attr(Client) -> #{<<"jid">> => escalus_utils:get_short_jid(Client)}.
 
@@ -952,6 +971,8 @@ props_to_children([{Key, Value} | Rest], Acc) ->
     props_to_children(Rest,
       [#xmlel{name = to_bin(Key), children = [#xmlcdata{content = to_bin(Value)}]} | Acc]).
 
+assert_property(X, jid, Val) ->
+    ?assertEqual(to_bin(Val), exml_query:attr(X, <<"jid">>));
 assert_property(X, read, Val) ->
     ?assertEqual(to_bin(Val), exml_query:path(X, [{element, <<"read">>}, cdata]));
 assert_property(X, box, Val) ->
@@ -975,20 +996,16 @@ has_same_id(OrigStanza, Stanza) ->
     Id = exml_query:attr(Stanza, <<"id">>),
     OrigId =:= Id.
 
+-spec muted_status(unmuted | non_neg_integer(), exml:element()) -> ok.
 muted_status(unmuted, Outer) ->
     Res = exml_query:path(Outer, [{element, <<"result">>}, {element, <<"mute">>}, cdata]),
     ?assertEqual(<<"0">>, Res);
-muted_status(MutedOrUnmuted, Outer) ->
+muted_status(MutedDiff, Outer) ->
     GivenRfcTimestamp = exml_query:path(Outer, [{element, <<"result">>}, {element, <<"mute">>}, cdata]),
-    GivenMutedUntil = calendar:rfc3339_to_system_time(binary_to_list(GivenRfcTimestamp), [{offset, "Z"}, {unit, microsecond}]),
+    GivenMutedUntil = calendar:rfc3339_to_system_time(binary_to_list(GivenRfcTimestamp), [{unit, microsecond}]),
     Now = erlang:system_time(microsecond),
-    case MutedOrUnmuted of
-        unmuted ->
-            ?assert(Now > GivenMutedUntil);
-        MutedDiff ->
-            Diff = erlang:convert_time_unit(MutedDiff, second, microsecond),
-            ?assert(Now + Diff < GivenMutedUntil)
-    end.
+    Diff = erlang:convert_time_unit(MutedDiff, second, microsecond),
+    ?assert(Now + Diff < GivenMutedUntil).
 
 verify_returns_error(User, Params, Error) ->
     Stanza = inbox_helper:make_inbox_stanza(Params),
@@ -997,3 +1014,34 @@ verify_returns_error(User, Params, Error) ->
     escalus:assert(is_iq_error, [Stanza], ResIQ),
     Type = exml_query:path(ResIQ, [{element, <<"error">>}, {element, Error}]),
     ?assertNotEqual(undefined, Type).
+
+send_msg_expect_broadcast_and_receipt(Sender, Receiver, Body) ->
+    MsgId = escalus_stanza:id(),
+    Msg = escalus_stanza:set_id(escalus_stanza:chat_to(Receiver, Body), MsgId),
+    escalus:send(Sender, Msg),
+
+    [Stanza1, Stanza2] = escalus:wait_for_stanzas(Receiver, 2),
+
+    BroadcastPred = fun(S) ->
+        is_broadcast_stanza(S) andalso
+            check_message_pushed(S, undefined,
+                                 [{jid, escalus_utils:get_short_jid(Sender)},
+                                  {box, inbox}, {archive, false}, {read, false}],
+                                 #{})
+    end,
+
+    escalus:assert_many([BroadcastPred,
+                        fun(S) -> is_valid_chat_message(S, MsgId) end],
+                       [Stanza1, Stanza2]).
+
+is_broadcast_stanza(Msg) ->
+    escalus_pred:is_message(Msg) andalso
+    case exml_query:subelements(Msg, <<"x">>) of
+        [X] -> exml_query:attr(X, <<"xmlns">>) == inbox_helper:inbox_ns_conversation();
+        _ -> false
+    end.
+
+is_valid_chat_message(Msg, MsgId) ->
+    escalus_pred:is_chat_message(Msg) andalso
+    exml_query:attr(Msg, <<"id">>) == MsgId.
+

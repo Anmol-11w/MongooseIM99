@@ -28,6 +28,8 @@ all() ->
      {group, markers_removal},
      {group, vcard_removal},
      {group, last_removal},
+     {group, push_removal},
+     {group, blocklist_removal},
      {group, removal_failures}
     ].
 
@@ -50,6 +52,9 @@ groups() ->
      {markers_removal, [], [markers_removal]},
      {vcard_removal, [], [vcard_removal]},
      {last_removal, [], [last_removal]},
+     {push_removal, [], [push_removal,
+                         push_removal_keeps_other_domain_subscriptions]},
+     {blocklist_removal, [], [blocklist_removal]},
      {removal_failures, [], [removal_stops_if_handler_fails]}
     ].
 
@@ -66,16 +71,8 @@ end_per_suite(Config) ->
 %%%===================================================================
 %%% Group specific setup/teardown
 %%%===================================================================
-init_per_group(Group, Config)
-  when Group =:= mam_removal_incremental; Group =:= inbox_removal_incremental ->
-    case rpc(mim(), mongoose_rdbms, db_engine, [host_type()]) of
-        odbc -> {skip, mssql_not_supported_for_incremental_removals};
-        _ -> do_init_per_group(Group, Config)
-    end;
-init_per_group(Group, Config) ->
-    do_init_per_group(Group, Config).
 
-do_init_per_group(auth_removal = Group, Config) ->
+init_per_group(auth_removal = Group, Config) ->
     case is_internal_or_rdbms() of
         true ->
             HostTypes = domain_helper:host_types(),
@@ -86,7 +83,7 @@ do_init_per_group(auth_removal = Group, Config) ->
         false ->
             {skip, require_internal_or_rdbms}
     end;
-do_init_per_group(Group, Config) ->
+init_per_group(Group, Config) ->
     case mongoose_helper:is_rdbms_enabled(host_type()) of
         true ->
             HostTypes = domain_helper:host_types(),
@@ -151,7 +148,12 @@ group_to_modules(markers_removal) ->
 group_to_modules(vcard_removal) ->
     [{mod_vcard, mod_config(mod_vcard, #{backend => rdbms})}];
 group_to_modules(last_removal) ->
-    [{mod_last, mod_config(mod_last, #{backend => rdbms})}].
+    [{mod_last, mod_config(mod_last, #{backend => rdbms})}];
+group_to_modules(push_removal) ->
+    PushOpts = #{backend => rdbms},
+    [{mod_event_pusher, #{push => config_parser_helper:config([modules, mod_event_pusher, push], PushOpts)}}];
+group_to_modules(blocklist_removal) ->
+    [{mod_blocklist, #{backend => rdbms}}].
 
 is_internal_or_rdbms() ->
     AuthMods = mongoose_helper:auth_modules(),
@@ -462,10 +464,76 @@ last_removal(Config0) ->
         end,
     escalus:fresh_story_with_config(Config0, [{alice, 1}, {bob, 1}], F).
 
+push_removal(Config) ->
+    escalus:fresh_story(Config, [{alice, 1}], fun(Alice) ->
+        %% Alice enables push notifications
+        PubsubJID = <<"pubsub.localhost">>,
+        Node = <<"test_node">>,
+        EnableStanza = push_helper:enable_stanza(PubsubJID, Node),
+        escalus:send(Alice, EnableStanza),
+        escalus:assert(is_iq_result, escalus:wait_for_stanza(Alice)),
+        %% Check that the subscription exists in the database
+        AliceJid = jid:from_binary(escalus_client:short_jid(Alice)),
+        {ok, Services} = rpc(mim(), mod_event_pusher_push_backend, get_publish_services,
+                             [host_type(), AliceJid]),
+        ?assertMatch([_], Services),
+        %% Remove domain and check that push subscriptions are removed
+        run_remove_domain(),
+        {ok, ServicesAfter} = rpc(mim(), mod_event_pusher_push_backend, get_publish_services,
+                                  [host_type(), AliceJid]),
+        ?assertMatch([], ServicesAfter)
+    end).
+
+push_removal_keeps_other_domain_subscriptions(Config) ->
+    escalus:fresh_story(Config, [{alice, 1}, {alice_bis, 1}], fun(Alice, AliceBis) ->
+        %% Both Alice (domain()) and AliceBis (other domain) enable push notifications
+        PubsubJID = <<"pubsub.localhost">>,
+        Node = <<"test_node">>,
+        EnableStanza = push_helper:enable_stanza(PubsubJID, Node),
+
+        escalus:send(Alice, EnableStanza),
+        escalus:assert(is_iq_result, escalus:wait_for_stanza(Alice)),
+
+        escalus:send(AliceBis, EnableStanza),
+        escalus:assert(is_iq_result, escalus:wait_for_stanza(AliceBis)),
+
+        %% Verify both subscriptions exist
+        AliceJid = jid:from_binary(escalus_client:short_jid(Alice)),
+        AliceBisJid = jid:from_binary(escalus_client:short_jid(AliceBis)),
+
+        {ok, AliceServices} = rpc(mim(), mod_event_pusher_push_backend, get_publish_services,
+                                  [host_type(), AliceJid]),
+        {ok, AliceBisServices} = rpc(mim(), mod_event_pusher_push_backend, get_publish_services,
+                                      [host_type(), AliceBisJid]),
+        ?assertMatch([_], AliceServices),
+        ?assertMatch([_], AliceBisServices),
+
+        %% Remove domain() and verify only Alice's subscription is removed
+        run_remove_domain(),
+
+        {ok, AliceServicesAfter} = rpc(mim(), mod_event_pusher_push_backend, get_publish_services,
+                                       [host_type(), AliceJid]),
+        {ok, AliceBisServicesAfter} = rpc(mim(), mod_event_pusher_push_backend, get_publish_services,
+                                          [host_type(), AliceBisJid]),
+        ?assertMatch([], AliceServicesAfter),
+        ?assertMatch([_], AliceBisServicesAfter)
+    end).
+
+blocklist_removal(Config) ->
+    escalus_fresh:story(Config, [{alice, 1}], fun(Alice) ->
+        HostType = host_type(),
+        #jid{luser = LUser, lserver = LServer} = Jid = jid:from_binary(escalus_client:full_jid(Alice)),
+        rpc(mim(), mod_blocklist_api, add_user, [Jid, <<"Spam">>]),
+        ?assertEqual({ok, <<"Spam">>}, rpc(mim(), mod_blocklist_rdbms, get_block, [HostType, LUser, LServer])),
+        run_remove_domain(),
+        ?assertEqual(not_found, rpc(mim(), mod_blocklist_rdbms, get_block, [HostType, LUser, LServer]))
+    end).
+
 removal_stops_if_handler_fails(Config0) ->
     mongoose_helper:inject_module(?MODULE),
     F = fun(Config, Alice) ->
-        start_domain_removal_hook(),
+        Handler = hook_handler(),
+        hook_helper:add_handler(Handler),
         Room = muc_helper:fresh_room_name(),
         MucHost = muc_light_helper:muc_host(),
         muc_light_helper:create_room(Room, MucHost, alice, [], Config, muc_light_helper:ver(1)),
@@ -475,28 +543,16 @@ removal_stops_if_handler_fails(Config0) ->
         mam_helper:wait_for_room_archive_size(MucHost, Room, 1),
         run_remove_domain(),
         mam_helper:wait_for_room_archive_size(MucHost, Room, 1),
-        stop_domain_removal_hook(),
+        hook_helper:delete_handler(Handler),
         run_remove_domain(),
         mam_helper:wait_for_room_archive_size(MucHost, Room, 0)
         end,
     escalus_fresh:story_with_config(Config0, [{alice, 1}], F).
 
 %% Helpers
-start_domain_removal_hook() ->
-    rpc(mim(), ?MODULE, rpc_start_domain_removal_hook, [host_type()]).
 
-stop_domain_removal_hook() ->
-    rpc(mim(), ?MODULE, rpc_stop_domain_removal_hook, [host_type()]).
-
-rpc_start_domain_removal_hook(HostType) ->
-    gen_hook:add_handler(remove_domain, HostType,
-                         fun ?MODULE:domain_removal_hook_fn/3,
-                         #{}, 30). %% Priority is so that it comes before muclight and mam
-
-rpc_stop_domain_removal_hook(HostType) ->
-    gen_hook:delete_handler(remove_domain, HostType,
-                            fun ?MODULE:domain_removal_hook_fn/3,
-                            #{}, 30).
+hook_handler() ->
+    {remove_domain, host_type(), fun ?MODULE:domain_removal_hook_fn/3, #{}, 30}.
 
 domain_removal_hook_fn(Acc, _Params, _Extra) ->
     F = fun() -> throw(first_time_needs_to_fail) end,

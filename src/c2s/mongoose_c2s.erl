@@ -112,7 +112,10 @@ handle_event(internal, #xmlstreamerror{name = <<"element too big">> = Err}, _, S
     c2s_stream_error(StateData, mongoose_xmpp_errors:policy_violation(StateData#c2s_data.lang, Err));
 handle_event(internal, #xmlstreamerror{name = Err}, _, StateData) ->
     c2s_stream_error(StateData, mongoose_xmpp_errors:xml_not_well_formed(StateData#c2s_data.lang, Err));
-handle_event(internal, #xmlel{name = <<"starttls">>} = El, {wait_for_feature_before_auth, SaslAcc, Retries}, StateData) ->
+handle_event(internal,
+             #xmlel{name = <<"starttls">>} = El,
+             {wait_for_feature_before_auth, SaslAcc, Retries},
+             StateData) ->
     case exml_query:attr(El, <<"xmlns">>) of
         ?NS_TLS ->
             handle_starttls(StateData, El, SaslAcc, Retries);
@@ -342,7 +345,7 @@ handle_stream_start(S0, Attrs, StreamState) ->
         {authenticated, ?NS_STREAM, ?XMPP_VERSION, {ok, HostType}} ->
             S = S0#c2s_data{host_type = HostType, lserver = LServer, lang = Lang},
             stream_start_features_after_auth(S);
-        {_, ?NS_STREAM, _Pre1_0, {ok, HostType}} ->
+        {_, ?NS_STREAM, _Pre10, {ok, HostType}} ->
             %% (http://xmpp.org/rfcs/rfc6120.html#streams-negotiation-features)
             S = S0#c2s_data{host_type = HostType, lserver = LServer, jid = From, lang = Lang},
             stream_start_error(S, mongoose_xmpp_errors:unsupported_version());
@@ -759,7 +762,8 @@ handle_foreign_packet(StateData = #c2s_data{host_type = HostType, lserver = LSer
     ?LOG_DEBUG(#{what => packet_before_session_established_sent, packet => El, c2s_pid => self()}),
     ServerJid = jid:make_noprep(<<>>, LServer, <<>>),
     AccParams = #{host_type => HostType, lserver => LServer, location => ?LOCATION,
-                  element => El, from_jid => ServerJid, to_jid => ServerJid},
+                  element => El, from_jid => ServerJid, to_jid => ServerJid,
+                  origin => xmpp_c2s},
     Acc0 = mongoose_acc:new(AccParams),
     HookParams = hook_arg(StateData, C2SState, internal, El, undefined),
     {_, Acc1} = mongoose_c2s_hooks:user_send_xmlel(HostType, Acc0, HookParams),
@@ -893,7 +897,8 @@ element_to_origin_accum(StateData = #c2s_data{sid = SID, jid = Jid}, El) ->
                    lserver => StateData#c2s_data.lserver,
                    location => ?LOCATION,
                    element => El,
-                   from_jid => Jid},
+                   from_jid => Jid,
+                   origin => xmpp_c2s},
     Params = case exml_query:attr(El, <<"to">>) of
                  undefined -> BaseParams#{ to_jid => jid:to_bare(Jid) };
                  _ToBin -> BaseParams
@@ -1020,7 +1025,8 @@ send_element_from_server_jid(StateData, El) ->
               location => ?LOCATION,
               from_jid => jid:make_noprep(<<>>, StateData#c2s_data.lserver, <<>>),
               to_jid => StateData#c2s_data.jid,
-              element => El}),
+              element => El,
+              origin => server}),
     do_send_element(StateData, Acc, El).
 
 -spec send_acc_from_server_jid(data(), mongoose_acc:t(), exml:element()) -> mongoose_acc:t().

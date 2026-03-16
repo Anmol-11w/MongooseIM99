@@ -19,11 +19,10 @@ COCKROACH_SQL=$(cat32 priv/cockroachdb.sql)
 COCKROACH_USER_SQL=$(cat32 tools/db_configs/cockroachdb/create_user.sql)
 COCKROACH_SETUP=$(cat32 tools/docker-setup-cockroachdb.sh)
 
-MSSQL_SQL=$(cat32 priv/mssql2012.sql)
-MSSQL_SETUP=$(cat32 tools/docker-setup-mssql.sh)
-
 LDAP_SCHEMA=$(cat32 tools/db_configs/ldap/init_entries.ldif)
 LDAP_SETUP=$(cat32 tools/db_configs/ldap/init_script.sh)
+
+REDIS_ACL=$(cat32 tools/redis.acl)
 
 CASSA_PROXY_CNF=$(cat32 tools/db_configs/cassandra/proxy/zazkia-routes.json)
 CASSA_ENTRY=$(cat32 tools/db_configs/cassandra/docker_entry.sh)
@@ -58,13 +57,11 @@ sed -e "s/__MYSQL_CNF__/${MYSQL_CNF}/" \
     -e "s/__COCKROACHDB_SQL__/${COCKROACH_SQL}/" \
     -e "s/__COCKROACHDB_SETUP__/${COCKROACH_SETUP}/" \
     -e "s/__COCKROACHDB_VERSION__/${COCKROACHDB_VERSION}/" \
-    -e "s/__MSSQL_SQL__/${MSSQL_SQL}/" \
-    -e "s/__MSSQL_SETUP__/${MSSQL_SETUP}/" \
-    -e "s/__MSSQL_VERSION__/${MSSQL_VERSION}/" \
     -e "s/__REDIS_VERSION__/${REDIS_VERSION}/" \
     -e "s/__LDAP_SCHEMA__/${LDAP_SCHEMA}/" \
     -e "s/__LDAP_SETUP__/${LDAP_SETUP}/" \
     -e "s/__LDAP_VERSION__/${LDAP_VERSION}/" \
+    -e "s/__REDIS_ACL__/${REDIS_ACL}/" \
     -e "s/__CASSA_PROXY_CNF__/${CASSA_PROXY_CNF}/" \
     -e "s/__CASSA_ENTRY__/${CASSA_ENTRY}/" \
     -e "s/__CASSA_MIM_SQL__/${CASSA_MIM_CQL_ENTRY}/" \

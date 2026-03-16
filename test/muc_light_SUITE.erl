@@ -121,6 +121,7 @@ codec_calls(_Config) ->
                          fun ?MODULE:filter_room_packet_handler/3,
                          #{},
                          50),
+    gen_hook:reload_hooks(),
 
     % count_call/1 should've been called twice - by handler fun (for each affiliated user,
     % we have one) and by a filter_room_packet hook handler.
@@ -178,7 +179,9 @@ prop_aff_change_success() ->
                         % are there no owners or there is exactly one?
                         true = validate_owner(NewAffUsers0, false, WithOwner),
                         % changes list applied to old list should produce the same result
-                        {ok, NewAffUsers1, _, _, _} = mod_muc_light_utils:change_aff_users(host_type(), AffUsers, AffUsersChanged),
+                        ChangeRes = mod_muc_light_utils:change_aff_users(host_type(), AffUsers,
+                                                                         AffUsersChanged),
+                        {ok, NewAffUsers1, _, _, _} = ChangeRes,
                         NewAffUsers0 = NewAffUsers1,
                         true;
                     _ ->

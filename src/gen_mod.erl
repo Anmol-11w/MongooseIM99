@@ -26,13 +26,14 @@
 -module(gen_mod).
 -author('alexey@process-one.net').
 
--export_type([key_path/0, opt_key/0, opt_value/0, module_opts/0]).
+-export_type([key_path/0, opt_key/0, opt_value/0, module_opts/0, host_type/0, module_feature/0]).
 
 -export([
          % Modules start & stop, do NOT use in the tests, use mongoose_modules API instead
          start_module/3,
          stop_module/2,
          does_module_support/2,
+         backend_opts/1,
          config_spec/1,
          % Get/set opts by host or from a list
          get_opt/2,
@@ -51,7 +52,8 @@
          hosts_and_opts_with_module/1,
          get_module_proc/2,
          is_loaded/2,
-         get_deps/3]).
+         get_deps/3,
+         reported_module_options/3]).
 
 -export([is_app_running/1]). % we have to mock it in some tests
 
@@ -73,6 +75,8 @@
 -callback supported_features() -> [module_feature()].
 -callback config_spec() -> mongoose_config_spec:config_section().
 -callback instrumentation(host_type()) -> [mongoose_instrument:spec()].
+%% Return subset of configuration options suitable for external APIs.
+-callback reported_module_options(host_type(), module_opts()) -> [{opt_key(), opt_value()}].
 
 %% Optional callback specifying module dependencies.
 %% The dependent module can specify parameters with which the dependee should be
@@ -87,7 +91,12 @@
 %% function).
 -callback deps(host_type(), module_opts()) -> gen_mod_deps:deps().
 
--optional_callbacks([hooks/1, config_spec/0, supported_features/0, instrumentation/1, deps/2]).
+%% Returns the list of config option keys that contain backend names.
+%% Used by config validation to check backends against internal_databases.
+-callback backend_opts() -> [opt_key()].
+
+-optional_callbacks([hooks/1, config_spec/0, supported_features/0, instrumentation/1,
+                    reported_module_options/2, deps/2, backend_opts/0]).
 
 %% @doc This function should be called by mongoose_modules only.
 %% To start a new module at runtime, use mongoose_modules:ensure_module/3 instead.
@@ -220,6 +229,13 @@ get_supported_features(Module) ->
     case erlang:function_exported(Module, supported_features, 0) of
         true -> apply(Module, supported_features, []);
         false -> []
+    end.
+
+-spec backend_opts(module()) -> [opt_key()].
+backend_opts(Module) ->
+    case erlang:function_exported(Module, backend_opts, 0) of
+        true -> Module:backend_opts();
+        false -> [backend]
     end.
 
 -spec config_spec(module()) -> mongoose_config_spec:config_section().
@@ -366,4 +382,11 @@ get_required_services(HostType, Module, Options) ->
             [Service || {service, Service} <- Module:deps(HostType, Options)];
         _ ->
             []
+    end.
+
+-spec reported_module_options(module(), host_type(), module_opts()) -> {ok, [{opt_key(), opt_value()}]} | error.
+reported_module_options(Module, HostType, Opts) ->
+    case erlang:function_exported(Module, reported_module_options, 2) of
+        true -> {ok, Module:reported_module_options(HostType, Opts)};
+        false -> error
     end.

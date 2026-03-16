@@ -9,6 +9,8 @@
 -include_lib("inbox.hrl").
 -include("muc_light.hrl").
 
+-dialyzer({nowarn_function, returns_error_when_unknown_field_sent/1}).
+
 %% tests
 -import(muc_light_helper, [room_bin_jid/1]).
 -import(inbox_helper, [
@@ -131,10 +133,6 @@ groups() ->
      {bin, [],
       [
        timeout_cleaner_flush_all,
-       rest_api_bin_flush_all,
-       rest_api_bin_flush_all_errors,
-       rest_api_bin_flush_user,
-       rest_api_bin_flush_user_errors,
        xmpp_bin_flush,
        bin_is_not_included_by_default
       ]},
@@ -270,7 +268,7 @@ end_per_testcase(no_stored_and_remain_after_kicked, Config) ->
     escalus:end_per_testcase(no_stored_and_remain_after_kicked, Config);
 end_per_testcase(msg_sent_to_not_existing_user, Config) ->
     HostType = domain_helper:host_type(),
-    escalus_ejabberd:rpc(mod_inbox_utils, clear_inbox, [HostType, <<"not_existing_user">>,<<"localhost">>]),
+    distributed_helper:rpc(distributed_helper:mim(), mod_inbox_utils, clear_inbox, [HostType, <<"not_existing_user">>,<<"localhost">>]),
     escalus:end_per_testcase(msg_sent_to_not_existing_user, Config);
 end_per_testcase(CaseName, Config) ->
     escalus:end_per_testcase(CaseName, Config).
@@ -350,8 +348,8 @@ returns_error_when_no_reset_field_jid(Config) ->
 
 returns_error_when_first_bad_form_field_encountered(Config) ->
     escalus:fresh_story(Config, [{alice, 1}], fun(Alice) ->
-        Stanza = inbox_helper:make_inbox_stanza(#{<<"start">> => <<"invalid">>,
-                                                  <<"end">> => <<"invalid">>}, false),
+        Stanza = inbox_helper:make_inbox_stanza(#{start => <<"invalid">>,
+                                                  'end' => <<"invalid">>}, false),
         escalus:send(Alice, Stanza),
         [ResIQ] = escalus:wait_for_stanzas(Alice, 1),
         escalus_pred:is_iq_error(ResIQ),
@@ -361,12 +359,12 @@ returns_error_when_first_bad_form_field_encountered(Config) ->
 
 returns_error_when_unknown_field_sent(Config) ->
     escalus:fresh_story(Config, [{alice, 1}], fun(Alice) ->
-        Stanza = inbox_helper:make_inbox_stanza(#{<<"unknown_field">> => <<"unknown_field_value">>}, false),
+        Stanza = inbox_helper:make_inbox_stanza(#{unknown_field => <<"unknown_field_value">>}, false),
         escalus:send(Alice, Stanza),
         [ResIQ] = escalus:wait_for_stanzas(Alice, 1),
         escalus_pred:is_iq_error(ResIQ),
         ErrorMsg = inbox_helper:get_error_message(ResIQ),
-        inbox_helper:assert_message_content(ErrorMsg, <<"field=unknown_field">>, <<"value=unknown_field_value">>)
+        inbox_helper:assert_message_content(ErrorMsg, 'field=unknown_field', <<"value=unknown_field_value">>)
       end).
 
 
@@ -513,8 +511,8 @@ msg_sent_to_not_existing_user(Config) ->
 
 user_has_two_unread_messages(Config) ->
     escalus:fresh_story(Config, [{kate, 1}, {mike, 1}], fun(Kate, Mike) ->
-        inbox_helper:send_msg(Kate, Mike, "Hello"),
-        inbox_helper:send_msg(Kate, Mike, "How are you"),
+        inbox_helper:send_msg(Kate, Mike, <<"Hello">>),
+        inbox_helper:send_msg(Kate, Mike, <<"How are you">>),
         %% Mike has two unread messages in conversation with Kate
         check_inbox(Mike, [#conv{unread = 2, from = Kate, to = Mike, content = <<"How are you">>}]),
         %% Kate has one conv in her inbox (no unread messages)
@@ -527,8 +525,8 @@ other_resources_do_not_interfere(Config) ->
         Prio = #xmlel{name = <<"priority">>, children = [#xmlcdata{content = <<"100">>}]},
         escalus_client:send(Kate2, escalus_stanza:presence(<<"available">>, [Prio])),
         escalus_client:wait_for_stanza(Kate),
-        inbox_helper:send_msg(Kate, Mike, "Hello"),
-        inbox_helper:send_msg(Kate, Mike, "How are you"),
+        inbox_helper:send_msg(Kate, Mike, <<"Hello">>),
+        inbox_helper:send_msg(Kate, Mike, <<"How are you">>),
         %% Mike has two unread messages in conversation with Kate
         check_inbox(Mike, [#conv{unread = 2, from = Kate, to = Mike, content = <<"How are you">>}]),
         %% Kate has one conv in her inbox (no unread messages)
@@ -1036,12 +1034,13 @@ inbox_does_not_trigger_does_user_exist(Config) ->
         Msg = <<"Mark me!">>,
         RoomName = inbox_helper:create_room(Alice, [Bob, Kate]),
         RoomJid = room_bin_jid(RoomName),
-        HookHandlerExtra = start_hook_listener(),
+        Handler = hook_handler(),
+        hook_helper:add_handler(Handler),
         Stanza = escalus_stanza:groupchat_to(RoomJid, Msg),
         %% Alice sends message to a room
         escalus:send(Alice, Stanza),
         [escalus:wait_for_stanza(User) || User <- [Alice, Bob, Kate]],
-        stop_hook_listener(HookHandlerExtra),
+        hook_helper:delete_handler(Handler),
         verify_hook_listener(RoomName)
       end).
 
@@ -1402,54 +1401,6 @@ bin_is_not_included_by_default(Config) ->
         check_inbox(Bob, [], #{})
     end).
 
-rest_api_bin_flush_user(Config) ->
-    TS = instrument_helper:timestamp(),
-    escalus:fresh_story(Config, [{alice, 1}, {bob, 1}, {kate, 1}], fun(Alice, Bob, Kate) ->
-        create_room_and_make_users_leave(Alice, Bob, Kate),
-        %% It is not in his bin anymore after triggering a bin flush
-        BobName = escalus_utils:get_username(Bob),
-        BobDomain = escalus_utils:get_server(Bob),
-        Path = <<"/inbox", "/", (BobDomain)/binary, "/", (BobName)/binary, "/0/bin">>,
-        {{<<"200">>, <<"OK">>}, NumOfRows} = rest_helper:delete(admin, Path),
-        ?assertEqual(1, NumOfRows),
-        check_inbox(Bob, [], #{box => bin})
-    end),
-    assert_async_request_event(TS).
-
-rest_api_bin_flush_user_errors(Config) ->
-    Config1 = escalus_fresh:create_users(Config, [{alice, 1}]),
-    User = escalus_users:get_username(Config1, alice),
-    Domain = escalus_users:get_server(Config1, alice),
-    {{<<"400">>, <<"Bad Request">>}, <<"Invalid number of days">>} =
-        rest_helper:delete(admin, <<"/inbox/", Domain/binary, "/", User/binary, "/x/bin">>),
-    {{<<"400">>, <<"Bad Request">>}, <<"Invalid JID">>} =
-        rest_helper:delete(admin, <<"/inbox/", Domain/binary, "/@/0/bin">>),
-    {{<<"404">>, <<"Not Found">>}, <<"Domain not found">>} =
-        rest_helper:delete(admin, <<"/inbox/baddomain/", User/binary, "/0/bin">>),
-    {{<<"404">>, <<"Not Found">>}, <<"User baduser@", _/binary>>} =
-        rest_helper:delete(admin, <<"/inbox/", Domain/binary, "/baduser/0/bin">>).
-
-rest_api_bin_flush_all(Config) ->
-    TS = instrument_helper:timestamp(),
-    escalus:fresh_story(Config, [{alice, 1}, {bob, 1}, {kate, 1}], fun(Alice, Bob, Kate) ->
-        create_room_and_make_users_leave(Alice, Bob, Kate),
-        %% It is not in any bin anymore after triggering a bin flush
-        HostTypePath = uri_string:normalize(#{path => domain_helper:host_type()}),
-        Path = <<"/inbox/", HostTypePath/binary, "/0/bin">>,
-        {{<<"200">>, <<"OK">>}, NumOfRows} = rest_helper:delete(admin, Path),
-        ?assertEqual(2, NumOfRows),
-        check_inbox(Bob, [], #{box => bin}),
-        check_inbox(Kate, [], #{box => bin})
-    end),
-    assert_async_request_event(TS).
-
-rest_api_bin_flush_all_errors(_Config) ->
-    HostTypePath = uri_string:normalize(#{path => domain_helper:host_type()}),
-    {{<<"400">>, <<"Bad Request">>}, <<"Invalid number of days">>} =
-        rest_helper:delete(admin, <<"/inbox/", HostTypePath/binary, "/x/bin">>),
-    {{<<"404">>, <<"Not Found">>}, <<"Host type not found">>} =
-        rest_helper:delete(admin, <<"/inbox/bad_host_type/0/bin">>).
-
 timeout_cleaner_flush_all(Config) ->
     TS = instrument_helper:timestamp(),
     escalus:fresh_story(Config, [{alice, 1}, {bob, 1}, {kate, 1}], fun(Alice, Bob, Kate) ->
@@ -1496,20 +1447,9 @@ if_async_check_bin(Config, Bob, Convs) ->
             check_inbox(Bob, Convs, #{box => bin})
     end.
 
-start_hook_listener() ->
-    TestCasePid = self(),
-    distributed_helper:rpc(distributed_helper:mim(), ?MODULE, rpc_start_hook_handler, [TestCasePid, domain_helper:host_type()]).
-
-stop_hook_listener(HookExtra) ->
-    distributed_helper:rpc(distributed_helper:mim(), ?MODULE, rpc_stop_hook_handler, [HookExtra, domain_helper:host_type()]).
-
-rpc_start_hook_handler(TestCasePid, HostType) ->
-    Extra = #{test_case_pid => TestCasePid},
-    gen_hook:add_handler(does_user_exist, HostType, fun ?MODULE:hook_handler_fn/3, Extra, 1),
-    Extra.
-
-rpc_stop_hook_handler(HookExtra, HostType) ->
-    gen_hook:delete_handler(does_user_exist, HostType, fun ?MODULE:hook_handler_fn/3, HookExtra, 1).
+hook_handler() ->
+    Extra = #{test_case_pid => self()},
+    {does_user_exist, domain_helper:host_type(), fun ?MODULE:hook_handler_fn/3, Extra, 1}.
 
 hook_handler_fn(Acc,
                 #{jid := User} = _Params,

@@ -32,7 +32,7 @@ A list of supported inbox boxes by the server. This can be used by clients to cl
 !!! note
     `inbox`, `archive`, and `bin` are reserved box names and are always enabled, therefore they don't need to –and must not– be specified in this section. `all` has a special meaning in the box query and therefore is also not allowed as a box name.
 
-    If the asynchronous backend is configured, automatic removals become moves to the `bin` box, also called "Trash bin". This is to ensure eventual consistency. Then the bin can be emptied, either on a [user request](../open-extensions/inbox.md#examples-emptying-the-trash-bin), with the `mongooseimctl inbox` command, through the [GraphQL API](../graphql-api/Admin-GraphQL.md), or through the [REST API](../rest-api/Administration-backend.md).
+    If the asynchronous backend is configured, automatic removals become moves to the `bin` box, also called "Trash bin". This is to ensure eventual consistency. Then the bin can be emptied, either on a [user request](../open-extensions/inbox.md#examples-emptying-the-trash-bin), with the `mongooseimctl inbox` command or through the [GraphQL API](../graphql-api/Admin-GraphQL.md).
 
 ### `modules.mod_inbox.bin_ttl`
 * **Syntax:** non-negative integer, expressed in days.
@@ -55,9 +55,6 @@ How often the automatic garbage collection runs over the bin.
 * **Example:** `modules.mod_inbox.delete_domain_limit = 10000`
 
 Domain deletion can be an expensive operation, as it requires to delete potentially many thousands of records from the DB. By default, the delete operation deletes everything in a transaction, but it might be desired, to handle timeouts and table locks more gracefully, to delete the records in batches. This limit establishes the size of the batch.
-
-!!! Note
-    Not supported by MSSQL.
 
 ### `modules.mod_inbox.reset_markers`
 * **Syntax:** array of strings, out of `"displayed"`, `"received"`, `"acknowledged"`
@@ -116,8 +113,7 @@ The special value `infinity` means no limit.
 Inbox currently supports the following DBs:
 
 * MySQL via native driver
-* PgSQL via native driver
-* MSSQL via ODBC driver
+* PostgreSQL via native driver
 
 ## Legacy MUC support
 Inbox comes with support for the legacy MUC as well. It stores all groupchat messages sent to

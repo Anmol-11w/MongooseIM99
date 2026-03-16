@@ -29,6 +29,8 @@ groups() ->
 
 domain_tests() ->
     [create_domain,
+     create_domain_fails_if_db_transaction_fails_constantly,
+     create_domain_succeeds_if_db_transaction_fails_once,
      unknown_host_type_error_formatting,
      add_static_domain_error_formatting,
      remove_static_domain_error_formatting,
@@ -41,9 +43,12 @@ domain_tests() ->
      wrong_host_type_error_formatting,
      invalid_domain_name_error,
      disable_domain,
+     get_all_domains_with_disabled,
      enable_domain,
      get_domains_by_host_type,
+     get_all_domains,
      get_domain_details,
+     get_static_domain_details,
      delete_domain,
      request_delete_domain,
      get_domains_after_deletion,
@@ -60,6 +65,7 @@ domain_admin_tests() ->
      domain_admin_disable_domain_no_permission,
      domain_admin_enable_domain_no_permission,
      domain_admin_get_domains_by_host_type_no_permission,
+     domain_admin_get_all_domains_no_permission,
      domain_admin_get_domain_details_no_permission,
      domain_admin_delete_domain_no_permission,
      domain_admin_set_domain_password_no_permission,
@@ -94,14 +100,40 @@ end_per_group(domain_admin_tests, _Config) ->
 end_per_group(_GroupName, _Config) ->
     graphql_helper:clean().
 
+init_per_testcase(get_all_domains_with_disabled, Config) ->
+    disable_domain(?EXAMPLE_DOMAIN, Config),
+    escalus:init_per_testcase(get_all_domains_with_disabled, Config);
+init_per_testcase(CaseName, Config)
+  when CaseName =:= create_domain_fails_if_db_transaction_fails_constantly;
+       CaseName =:= create_domain_succeeds_if_db_transaction_fails_once ->
+    rpc(mim(), meck, new, [mongoose_rdbms, [no_link, passthrough]]),
+    escalus:init_per_testcase(CaseName, Config);
 init_per_testcase(CaseName, Config) ->
     escalus:init_per_testcase(CaseName, Config).
 
+end_per_testcase(get_all_domains_with_disabled, Config) ->
+    enable_domain(?EXAMPLE_DOMAIN, Config),
+    escalus:end_per_testcase(get_all_domains_with_disabled, Config);
+end_per_testcase(CaseName, Config)
+  when CaseName =:= create_domain_fails_if_db_transaction_fails_constantly;
+       CaseName =:= create_domain_succeeds_if_db_transaction_fails_once ->
+    rpc(mim(), meck, unload, [mongoose_rdbms]),
+    escalus:end_per_testcase(CaseName, Config);
 end_per_testcase(CaseName, Config) ->
     escalus:end_per_testcase(CaseName, Config).
 
 create_domain(Config) ->
-    create_domain(?EXAMPLE_DOMAIN, Config),
+    create_domain(?EXAMPLE_DOMAIN, Config).
+
+create_domain_fails_if_db_transaction_fails_constantly(Config) ->
+    ok = rpc(mim(), meck, expect, [mongoose_rdbms, sql_transaction, 2,
+                                   {aborted, simulated_db_error}]),
+    Result = add_domain(?SECOND_EXAMPLE_DOMAIN, ?HOST_TYPE, Config),
+    ?assertEqual(<<"Unexpected DomainAdminMutation resolver crash">>, get_err_msg(Result)).
+
+create_domain_succeeds_if_db_transaction_fails_once(Config) ->
+    Seq = meck:seq([{aborted, simulated_db_error}, meck:passthrough()]),
+    ok = rpc(mim(), meck, expect, [mongoose_rdbms, sql_transaction, 2, Seq]),
     create_domain(?SECOND_EXAMPLE_DOMAIN, Config).
 
 create_domain(DomainName, Config) ->
@@ -178,6 +210,15 @@ disable_domain(Config) ->
     {ok, Domain} = rpc(mim(), mongoose_domain_sql, select_domain, [?EXAMPLE_DOMAIN]),
     ?assertEqual(#{host_type => ?HOST_TYPE, status => disabled}, Domain).
 
+get_all_domains_with_disabled(Config) ->
+    Result = execute_command(<<"domain">>, <<"allDomains">>, #{}, Config),
+    ParsedResult = get_ok_value([data, domain, allDomains], Result),
+    Expected = [
+        #{<<"domain">> => ?EXAMPLE_DOMAIN, <<"hostType">> => ?HOST_TYPE, <<"status">> => <<"DISABLED">>, <<"type">> => <<"DYNAMIC">>},
+        #{<<"domain">> => ?SECOND_EXAMPLE_DOMAIN, <<"hostType">> => ?HOST_TYPE, <<"status">> => <<"ENABLED">>, <<"type">> => <<"DYNAMIC">>}
+    ],
+    lists:foreach(fun(E) -> ?assert(lists:member(E, ParsedResult)) end, Expected).
+
 enable_domain(Config) ->
     Result = enable_domain(?EXAMPLE_DOMAIN, Config),
     ParsedResult = get_ok_value([data, domain, enableDomain], Result),
@@ -189,12 +230,31 @@ get_domains_by_host_type(Config) ->
     ?assertEqual(lists:sort([?EXAMPLE_DOMAIN, ?SECOND_EXAMPLE_DOMAIN]),
                  lists:sort(ParsedResult)).
 
+get_all_domains(Config) ->
+    Result = execute_command(<<"domain">>, <<"allDomains">>, #{}, Config),
+    ParsedResult = get_ok_value([data, domain, allDomains], Result),
+    Expected = [
+        #{<<"domain">> => ?EXAMPLE_DOMAIN, <<"hostType">> => ?HOST_TYPE, <<"status">> => <<"ENABLED">>, <<"type">> => <<"DYNAMIC">>},
+        #{<<"domain">> => ?SECOND_EXAMPLE_DOMAIN, <<"hostType">> => ?HOST_TYPE, <<"status">> => <<"ENABLED">>, <<"type">> => <<"DYNAMIC">>},
+        #{<<"domain">> => <<"localhost">>, <<"hostType">> => <<"localhost">>, <<"status">> => <<"ENABLED">>, <<"type">> => <<"STATIC">>}
+    ],
+    lists:foreach(fun(E) -> ?assert(lists:member(E, ParsedResult)) end, Expected).
+
 get_domain_details(Config) ->
     Result = get_domain_details(?EXAMPLE_DOMAIN, Config),
     ParsedResult = get_ok_value([data, domain, domainDetails], Result),
     ?assertEqual(#{<<"domain">> => ?EXAMPLE_DOMAIN,
                    <<"hostType">> => ?HOST_TYPE,
-                   <<"status">> => <<"ENABLED">>}, ParsedResult).
+                   <<"status">> => <<"ENABLED">>,
+                   <<"type">> => <<"DYNAMIC">>}, ParsedResult).
+
+get_static_domain_details(Config) ->
+    Result = get_domain_details(<<"localhost">>, Config),
+    ParsedResult = get_ok_value([data, domain, domainDetails], Result),
+    ?assertEqual(#{<<"domain">> => <<"localhost">>,
+                   <<"hostType">> => <<"localhost">>,
+                   <<"status">> => <<"ENABLED">>,
+                   <<"type">> => <<"STATIC">>}, ParsedResult).
 
 delete_domain(Config) ->
     Result1 = remove_domain(?EXAMPLE_DOMAIN, ?HOST_TYPE, Config),
@@ -253,7 +313,8 @@ domain_admin_get_domain_details(Config) ->
     ParsedResult = get_ok_value([data, domain, domainDetails], Result),
     ?assertEqual(#{<<"domain">> => ?DOMAIN_ADMIN_EXAMPLE_DOMAIN,
                    <<"hostType">> => ?HOST_TYPE,
-                   <<"status">> => <<"ENABLED">>}, ParsedResult).
+                   <<"status">> => <<"ENABLED">>,
+                   <<"type">> => <<"DYNAMIC">>}, ParsedResult).
 
 domain_admin_set_domain_password(Config) ->
     Result = set_domain_password(?DOMAIN_ADMIN_EXAMPLE_DOMAIN, <<"secret">>, Config),
@@ -275,6 +336,9 @@ domain_admin_enable_domain_no_permission(Config) ->
 domain_admin_get_domains_by_host_type_no_permission(Config) ->
     get_unauthorized(get_domains_by_host_type(?HOST_TYPE, Config)),
     get_unauthorized(get_domains_by_host_type(domain_helper:host_type(), Config)).
+
+domain_admin_get_all_domains_no_permission(Config) ->
+    get_unauthorized(execute_command(<<"domain">>, <<"allDomains">>, #{}, Config)).
 
 domain_admin_get_domain_details_no_permission(Config) ->
     get_unauthorized(get_domain_details(?DOMAIN_ADMIN_EXAMPLE_DOMAIN, Config)),

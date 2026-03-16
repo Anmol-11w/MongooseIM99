@@ -17,11 +17,11 @@
         role := role(),
         method := binary(),
         creds => credentials(),
-        path := binary(),
-        body := binary(),
+        path := binary() | string(),
+        body => binary() | map(),
         headers => [{binary(), binary()}],
-        return_headers := boolean(),
-        server := distributed_helper:rpc_spec(),
+        return_headers => boolean(),
+        server => distributed_helper:rpc_spec(),
         port => inet:port_number(),
         return_maps => boolean()}.
 
@@ -29,94 +29,17 @@
 %% Helpers
 %%--------------------------------------------------------------------
 
-assert_inlist(Pattern, L) when is_map(Pattern) ->
-    assert_inmaplist(maps:keys(Pattern), Pattern, L, L);
-assert_inlist(Pattern, L) ->
-    [H|_] = L,
-    Fl = lists:filter(fun(X) -> case X of Pattern -> true; _ -> false end end, L),
-    case Fl of
-        [] ->
-            ct:fail("Fail: ~p not in [~p...]", [Pattern, H]);
-        _ ->
-            Fl
-    end.
-
-assert_notinlist(Pattern, L) when is_map(Pattern) ->
-    assert_notinmaplist(maps:keys(Pattern), Pattern, L, L);
-assert_notinlist(Pattern, L) ->
-    Fl = lists:filter(fun(X) -> case X of Pattern -> true; _ -> false end end, L),
-    case Fl of
-        [] ->
-            ok;
-        _ ->
-            ct:fail("Fail: ~p in ~p", [Pattern, L])
-    end.
-
-assert_inmaplist([], Map, L, [H|_]) ->
-    case L of
-        [] ->
-            ct:fail("Fail: ~p not in [~p...]", [Map, H]);
-        _ ->
-            L
-    end;
-assert_inmaplist([K|Keys], Map, L, Orig) ->
-    V = maps:get(K, Map),
-    Nl = lists:filter(fun(M) -> maps:get(K, M, niema) =:= V end, L),
-    assert_inmaplist(Keys, Map, Nl, Orig).
-
-
-assert_notinmaplist([], Map, L, [H|_]) ->
-    case L of
-        [] ->
-            ok;
-        _ ->
-            ct:fail("Fail: ~p in [~p...]", [Map, H])
-    end;
-assert_notinmaplist([K|Keys], Map, L, Orig) ->
-    V = maps:get(K, Map),
-    Nl = lists:filter(fun(M) -> maps:get(K, M, niema) =:= V end, L),
-    assert_notinmaplist(Keys, Map, Nl, Orig).
-
-
-gett(Role, Path) ->
-    make_request(#{ role => Role, method => <<"GET">>, path => Path }).
-
-post(Role, Path, Body) ->
-    make_request(#{ role => Role, method => <<"POST">>, path => Path, body => Body }).
-
-putt(Role, Path, Body) ->
-    make_request(#{ role => Role, method => <<"PUT">>, path => Path, body => Body }).
-
-delete(Role, Path) ->
-    make_request(#{ role => Role, method => <<"DELETE">>, path => Path }).
-
-gett(Role, Path, Cred) ->
-    make_request(#{ role => Role, method => <<"GET">>, creds => Cred, path => Path}).
-
-post(Role, Path, Body, Cred) ->
-    make_request(#{ role => Role, method => <<"POST">>, creds => Cred, path => Path, body => Body }).
-
-putt(Role, Path, Body, Cred) ->
-    make_request(#{ role => Role, method => <<"PUT">>, creds => Cred, path => Path, body => Body }).
-
-delete(Role, Path, Cred) ->
-    make_request(#{ role => Role, method => <<"DELETE">>, creds => Cred, path => Path }).
-
-delete(Role, Path, Cred, Body) ->
-    make_request(#{ role => Role, method => <<"DELETE">>, creds => Cred, path => Path, body => Body }).
 
 -spec make_request(request_params()) ->
     {{Number :: binary(), Text :: binary()},
      Headers :: [{binary(), binary()}],
-     Body :: map() | binary()}.
+     Body :: jiffy:json_value()}
+  | {{Number :: binary(), Text :: binary()},
+     Body :: jiffy:json_value()}.
 make_request(#{ return_headers := true } = Params) ->
     NormalizedParams = normalize_path(normalize_body(fill_default_server(Params))),
-    case fusco_request(NormalizedParams) of
-        {RCode, RHeaders, Body, _, _} ->
-            {RCode, normalize_headers(RHeaders), decode(Body, Params)};
-        {RCode, RHeaders, Body, _, _, _} ->
-            {RCode, normalize_headers(RHeaders), decode(Body, Params)}
-    end;
+    {RCode, RHeaders, Body, _, _} = fusco_request(NormalizedParams),
+    {RCode, normalize_headers(RHeaders), decode(Body, Params)};
 make_request(#{ return_headers := false } = Params) ->
     {Code, _, Body} = make_request(Params#{ return_headers := true }),
     {Code, Body};
@@ -142,20 +65,22 @@ fill_default_server(Params) ->
 
 decode(<<>>, _P) ->
     <<"">>;
-decode(RespBody, #{return_maps := true}) ->
+decode(RespBody, #{return_maps := true}) when is_binary(RespBody); is_list(RespBody) ->
     try
         jiffy:decode(RespBody, [return_maps])
     catch
         error:_ ->
             RespBody
     end;
-decode(RespBody, _P) ->
+decode(RespBody, _P) when is_binary(RespBody); is_list(RespBody) ->
     try
         jiffy:decode(RespBody)
     catch
         error:_ ->
             RespBody
-    end.
+    end;
+decode(Res, _) ->
+    Res.
 
 normalize_headers(Headers) ->
     lists:map(fun({K, V}) when is_binary(V) -> {K, V};
@@ -236,40 +161,6 @@ get_ssl_status(Role, Node) ->
     [Opts] = lists:filter(fun (Opts) -> is_roles_config(Opts, Role) end, Listeners),
     maps:is_key(tls, Opts).
 
-% @doc Changes the control credentials for admin by restarting the listener
-% with new options.
--spec change_admin_creds({User :: binary(), Password :: binary()}) -> 'ok' | 'error'.
-change_admin_creds(Creds) ->
-    stop_admin_listener(),
-    ok = start_admin_listener(Creds).
-
--spec stop_admin_listener() -> 'ok' | {'error', 'not_found' | 'restarting' | 'running' | 'simple_one_for_one'}.
-stop_admin_listener() ->
-    Listeners = rpc(mim(), mongoose_config, get_opt, [listen]),
-    [Opts] = lists:filter(fun (Opts) -> is_roles_config(Opts, admin) end, Listeners),
-    rpc(mim(), mongoose_listener, stop_listener, [Opts]).
-
--spec start_admin_listener(Creds :: {binary(), binary()}) -> {'error', pid()} | {'ok', _}.
-start_admin_listener(Creds) ->
-    Listeners = rpc(mim(), mongoose_config, get_opt, [listen]),
-    [Opts] = lists:filter(fun (Opts) -> is_roles_config(Opts, admin) end, Listeners),
-    NewOpts = insert_creds(Opts, Creds),
-    rpc(mim(), mongoose_listener, start_listener, [NewOpts]).
-
-insert_creds(Opts = #{handlers := Handlers}, Creds) ->
-    NewHandlers = [inject_creds_to_opts(Handler, Creds) || Handler <- Handlers],
-    Opts#{handlers := NewHandlers}.
-
-inject_creds_to_opts(Handler = #{module := mongoose_admin_api}, Creds) ->
-    case Creds of
-        {UserName, Password} ->
-            Handler#{username => UserName, password => Password};
-        any ->
-            maps:without([username, password], Handler)
-    end;
-inject_creds_to_opts(Handler, _Creds) ->
-    Handler.
-
 % @doc Checks whether a config for a port is an admin, client or GraphQL one.
 % This is determined based on handler modules used.
 is_roles_config(#{module := ejabberd_cowboy, handlers := Handlers}, {graphql, SchemaEndpoint}) ->
@@ -278,13 +169,7 @@ is_roles_config(#{module := ejabberd_cowboy, handlers := Handlers}, {graphql, Sc
                  (_) ->
                       false
               end, Handlers);
-is_roles_config(#{module := ejabberd_cowboy, handlers := Handlers}, Role) ->
-    RoleModule = role_to_module(Role),
-    lists:any(fun(#{module := Module}) -> Module =:= RoleModule end, Handlers);
 is_roles_config(_, _) -> false.
-
-role_to_module(admin) -> mongoose_admin_api;
-role_to_module(client) -> mongoose_client_api.
 
 mapfromlist(L) ->
     Nl = lists:map(fun({K, {V}}) when is_list(V) ->
@@ -495,22 +380,6 @@ make_msg_stanza_with_thread_and_parent(ToJID, MsgID, ThreadID, ThreadParentID) -
             <thread parent='",ThreadParentID/binary,"'>",ThreadID/binary,"</thread>
         </message>">>).
 
-
-simple_request(Method, Path) when is_binary(Method)->
-    simple_request(Method, Path, <<>>).
-simple_request(Method, Path, Port) when is_binary(Method) and is_integer(Port) ->
-    simple_request(Method, Path, Port, <<>>).
-simple_request(Method, Path, Port, Body) ->
-    ReqParams = #{
-        role => client,
-        method => Method,
-        path => Path,
-        body => Body,
-        return_headers => true,
-        port => Port,
-        return_maps => true
-    },
-    rest_helper:make_request(ReqParams).
 
 assert_status(Status, {{S, _R}, _H, _B}) when is_integer(Status) ->
     ?assertEqual(integer_to_binary(Status), S).

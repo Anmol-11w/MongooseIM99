@@ -16,12 +16,6 @@
   validity_period.access = {value = 13, unit = "minutes"}
   validity_period.refresh = {value = 13, unit = "days"}
 
-[modules.mod_bosh]
-  inactivity = 20
-  max_wait = "infinity"
-  server_acks = true
-  max_pause = 120
-
 [modules.mod_caps]
   cache_size = 1000
   cache_life_time = 86
@@ -99,6 +93,9 @@
     type = "turn"
     host = "192.168.0.1"
 
+[modules.mod_external_filter]
+  pool_tag = "external_filter_http"
+
 [modules.mod_http_upload]
   host = "upload.@HOST@"
   backend = "s3"
@@ -120,7 +117,8 @@
   local_host = "datacenter1.example.com"
   connections.endpoints = [{host = "172.16.0.2", port = 5555}]
   connections.advertised_endpoints = [{host = "172.16.0.2", port = 5555}]
-  connections.tls.certfile = "priv/dc1.pem"
+  connections.tls.certfile = "priv/cert.pem"
+  connections.tls.keyfile = "priv/dc1.pem"
   connections.tls.cacertfile = "priv/ca.pem"
   connections.connections_per_endpoint = 30
   cache.domain_lifetime_seconds = 60
