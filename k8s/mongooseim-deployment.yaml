@@ -24,7 +24,7 @@ spec:
           imagePullPolicy: Always        
           ports:
             - name: xmpp-client
-              containerPort: 7070
+              containerPort: 5222
           resources:
             requests:
               cpu: "250m"
@@ -34,12 +34,12 @@ spec:
               memory: "1Gi"
           livenessProbe:
             tcpSocket:
-              port: 7070
+              port: 5222
             initialDelaySeconds: 30
             periodSeconds: 15
           readinessProbe:
             tcpSocket:
-              port: 7070
+              port: 5222
             initialDelaySeconds: 20
             periodSeconds: 10
 
@@ -55,4 +55,4 @@ spec:
   ports:
     - name: xmpp-client
       port: 7070
-      targetPort: 7070
+      targetPort: 5222
