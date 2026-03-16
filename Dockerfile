@@ -22,7 +22,7 @@ RUN ./tools/configure system=yes prefix=/ \
     && make rel install
 
 
-FROM ubuntu:24.04 AS runtime
+FROM debian:trixie-slim AS runtime
 
 ENV MONGOOSEIM_HOME=/usr/lib/mongooseim
 
