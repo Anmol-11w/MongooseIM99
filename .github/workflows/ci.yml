@@ -144,6 +144,45 @@ jobs:
 
 
 # =====================================================
+# KUBERNETES BACKEND SMOKE TESTS (NON-BLOCKING)
+# =====================================================
+  kubernetes_backends_smoke:
+    name: kubernetes smoke ${{ matrix.preset }}
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+
+    strategy:
+      fail-fast: false
+      matrix:
+        preset:
+          - internal_mnesia
+          - pgsql_mnesia
+          - mysql_redis
+          - ldap_mnesia
+          - elasticsearch_and_cassandra_mnesia
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Kubernetes-in-Docker (kind)
+        uses: helm/kind-action@v1
+
+      - name: Run backend smoke profile in Kubernetes
+        run: bash tools/k8s-backends-smoke.sh "${{ matrix.preset }}"
+
+      - name: Dump Kubernetes state on failure
+        if: failure()
+        run: |
+          kubectl get ns || true
+          kubectl get pods -A -o wide || true
+          kubectl get svc -A || true
+          kubectl get events -A --sort-by=.lastTimestamp | tail -n 200 || true
+
+
+# =====================================================
 # STATIC CHECKS (BLOCKING)
 # =====================================================
   dialyzer:
@@ -189,6 +228,55 @@ jobs:
         with:
           otp-version: ${{ matrix.otp }}
       - run: tools/test.sh -p edoc_only
+
+
+# =====================================================
+# DOCKER IMAGE BUILD (BLOCKING)
+# =====================================================
+  docker_image:
+    name: docker image build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare image tags
+        id: image
+        run: |
+          OWNER_LC=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          REPO_LC=$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/${OWNER_LC}/${REPO_LC}"
+          BRANCH_TAG=$(echo "${GITHUB_REF_NAME}" | tr '/' '-')
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${IMAGE}:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "branch_tag=${IMAGE}:${BRANCH_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build app Docker image
+        run: docker build --tag "${{ steps.image.outputs.sha_tag }}" .
+
+      - name: Smoke test Docker image
+        run: docker run --rm --entrypoint /usr/lib/mongooseim/bin/mongooseim "${{ steps.image.outputs.sha_tag }}" version --simple
+
+      - name: Tag branch image
+        run: docker tag "${{ steps.image.outputs.sha_tag }}" "${{ steps.image.outputs.branch_tag }}"
+
+      - name: Push image to GHCR
+        run: |
+          docker push "${{ steps.image.outputs.sha_tag }}"
+          docker push "${{ steps.image.outputs.branch_tag }}"
 
 
 # =====================================================
