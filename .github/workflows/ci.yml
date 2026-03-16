@@ -258,10 +258,18 @@ jobs:
           OWNER_LC=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
           REPO_LC=$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')
           IMAGE="ghcr.io/${OWNER_LC}/${REPO_LC}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
           BRANCH_TAG=$(echo "${GITHUB_REF_NAME}" | tr '/' '-')
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "sha_tag=${IMAGE}:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${IMAGE}:sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "run_tag=${IMAGE}:run-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "branch_tag=${IMAGE}:${BRANCH_TAG}" >> "$GITHUB_OUTPUT"
+          # push :latest only when building the main branch
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            echo "latest_tag=${IMAGE}:latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "latest_tag=" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -276,13 +284,22 @@ jobs:
       - name: Smoke test Docker image
         run: docker run --rm --entrypoint /usr/lib/mongooseim/bin/mongooseim "${{ steps.image.outputs.sha_tag }}" version --simple
 
-      - name: Tag branch image
-        run: docker tag "${{ steps.image.outputs.sha_tag }}" "${{ steps.image.outputs.branch_tag }}"
+      - name: Tag branch / run-number / latest images
+        run: |
+          docker tag "${{ steps.image.outputs.sha_tag }}" "${{ steps.image.outputs.branch_tag }}"
+          docker tag "${{ steps.image.outputs.sha_tag }}" "${{ steps.image.outputs.run_tag }}"
+          if [[ -n "${{ steps.image.outputs.latest_tag }}" ]]; then
+            docker tag "${{ steps.image.outputs.sha_tag }}" "${{ steps.image.outputs.latest_tag }}"
+          fi
 
       - name: Push image to GHCR
         run: |
           docker push "${{ steps.image.outputs.sha_tag }}"
           docker push "${{ steps.image.outputs.branch_tag }}"
+          docker push "${{ steps.image.outputs.run_tag }}"
+          if [[ -n "${{ steps.image.outputs.latest_tag }}" ]]; then
+            docker push "${{ steps.image.outputs.latest_tag }}"
+          fi
 
 
 # =====================================================
