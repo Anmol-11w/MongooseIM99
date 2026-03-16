@@ -22,7 +22,7 @@ RUN ./tools/configure system=yes prefix=/ \
     && make rel install
 
 
-FROM debian:bookworm-slim AS runtime
+FROM ubuntu:24.04 AS runtime
 
 ENV MONGOOSEIM_HOME=/usr/lib/mongooseim
 
