@@ -1,5 +1,4 @@
 # Default values for mongooseim.
-# Override with: helm install mongooseim ./helm/mongooseim -f my-values.yaml
 
 replicaCount: 2
 
