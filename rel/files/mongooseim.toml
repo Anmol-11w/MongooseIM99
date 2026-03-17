@@ -23,6 +23,11 @@
   transport.num_acceptors = 10
   transport.max_connections = 1024
 
+ [[listen.http]]
+  port = {{{http_port}}}
+  transport.num_acceptors = 10
+  transport.max_connections = 1024
+
   [[listen.http.handlers.mongoose_bosh_handler]]
     host = "_"
     path = "/http-bind"
@@ -31,11 +36,11 @@
     host = "_"
     path = "/ws-xmpp"
 
-  [[listen.http.handlers.mongoose_w_admin]]
+  [[listen.http.handlers.mongoose_admin]]
     host = "_"
     path = "/admin"
 
-  [[listen.http.handlers.mongoose_api_health]]
+  [[listen.http.handlers.mongoose_health]]
     host = "_"
     path = "/health"
 
