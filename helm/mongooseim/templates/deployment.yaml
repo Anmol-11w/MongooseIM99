@@ -50,7 +50,7 @@ spec:
                 (echo > /dev/tcp/{{ .Values.mysqlBackend.host }}/{{ .Values.mysqlBackend.port }}) >/dev/null 2>&1 && break
                 sleep 1
               done
-              sed -i 's/^\[auth\.internal\]/[auth.rdbms]/' "$CONF" || true
+              sed -i 's/^\[auth\.rdbms\]/[auth.rdbms]/' "$CONF" || true
               if ! grep -q '^\[auth.rdbms\]' "$CONF"; then
                 printf '\n[auth.rdbms]\n' >> "$CONF"
               fi
