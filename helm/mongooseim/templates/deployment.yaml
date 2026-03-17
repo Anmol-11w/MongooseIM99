@@ -37,6 +37,9 @@ spec:
         - name: copy-mysql-schema
           image: {{ include "mongooseim.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
           command:
             - sh
             - -ec
@@ -55,6 +58,7 @@ spec:
             - /bin/bash
             - -ec
             - |
+              set -e
               CONF="/tmp/mongooseim.toml"
               cp /etc/mongooseim/mongooseim.toml "$CONF"
               export EJABBERD_CONFIG_PATH="$CONF"
@@ -65,10 +69,7 @@ spec:
               done
               sed -i 's/^\[auth\.internal\]/[auth.rdbms]/' "$CONF" || true
               if ! grep -q '^\[auth.rdbms\]' "$CONF"; then
-                cat <<'EOF' >> "$CONF"
-
-[auth.rdbms]
-EOF
+                printf '\n[auth.rdbms]\n' >> "$CONF"
               fi
 
               sed -i '/^[[:space:]]*outgoing_pools\.rdbms\.default\./d' "$CONF"
@@ -81,22 +82,9 @@ EOF
               ' "$CONF" > "${CONF}.new"
               mv "${CONF}.new" "$CONF"
 
-              cat >> "$CONF" <<EOF
-
-[outgoing_pools.rdbms.default]
-  scope = "global"
-  workers = 5
-
-  [outgoing_pools.rdbms.default.connection]
-    driver = "mysql"
-    host = "{{ .Values.mysqlBackend.host }}"
-    port = {{ .Values.mysqlBackend.port }}
-    database = "{{ .Values.mysqlBackend.database }}"
-    username = "{{ .Values.mysqlBackend.username }}"
-    password = "{{ .Values.mysqlBackend.password }}"
-EOF
-          echo "Configured outgoing_pools in $CONF:"
-          grep -n 'outgoing_pools\.rdbms\.default\|driver = \"mysql\"\|host = \|port = \|database = \|username = ' "$CONF" || true
+              printf '\n[outgoing_pools.rdbms.default]\n  scope = "global"\n  workers = 5\n\n  [outgoing_pools.rdbms.default.connection]\n    driver = "mysql"\n    host = "{{ .Values.mysqlBackend.host }}"\n    port = {{ .Values.mysqlBackend.port }}\n    database = "{{ .Values.mysqlBackend.database }}"\n    username = "{{ .Values.mysqlBackend.username }}"\n    password = "{{ .Values.mysqlBackend.password }}"\n' >> "$CONF"
+              echo "Configured outgoing_pools in $CONF:"
+              grep -n 'outgoing_pools\.rdbms\.default\|driver = "mysql"\|host = \|port = \|database = \|username = ' "$CONF" || true
               exec /usr/lib/mongooseim/bin/mongooseim foreground
           {{- end }}
           {{- with .Values.securityContext }}
