@@ -1,0 +1,17 @@
+apiVersion: v2
+name: mongooseim
+description: A Helm chart for MongooseIM – a scalable, distributed XMPP server
+type: application
+version: 0.1.0
+appVersion: "6.3.0"
+keywords:
+  - xmpp
+  - messaging
+  - erlang
+  - mongooseim
+home: https://mongooseim.readthedocs.io
+sources:
+  - https://github.com/esl/MongooseIM
+maintainers:
+  - name: MongooseIM contributors
+    url: https://github.com/esl/MongooseIM

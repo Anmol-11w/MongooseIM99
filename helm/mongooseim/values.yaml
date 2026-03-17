@@ -1,0 +1,103 @@
+# Default values for mongooseim.
+# Override with: helm install mongooseim ./helm/mongooseim -f my-values.yaml
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/esl/mongooseim
+  tag: ""         
+  pullPolicy: Always
+
+imagePullSecrets: []
+# - name: ghcr-secret
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: false
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  ports:
+    xmppClient:
+      port: 5222
+      protocol: TCP
+    xmppServer:
+      port: 5269
+      protocol: TCP
+    bosh:
+      port: 5280
+      protocol: TCP
+    admin:
+      port: 8888
+      protocol: TCP
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "256Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"
+
+livenessProbe:
+  tcpSocket:
+    port: xmpp-client
+  initialDelaySeconds: 30
+  periodSeconds: 15
+
+readinessProbe:
+  tcpSocket:
+    port: xmpp-client
+  initialDelaySeconds: 20
+  periodSeconds: 10
+
+env: []
+# Extra environment variables, e.g.:
+# - name: MIM_LOGLEVEL
+#   value: "warning"
+
+envFrom: []
+
+extraContainers:
+  - name: redis
+    image: redis:7
+    imagePullPolicy: IfNotPresent
+    ports:
+      - name: redis
+        containerPort: 6379
+        protocol: TCP
+
+  - name: mysql
+    image: mysql:8.0
+    imagePullPolicy: IfNotPresent
+    env:
+      - name: MYSQL_ROOT_PASSWORD
+        value: "secret"
+      - name: MYSQL_DATABASE
+        value: "mongooseim"
+      - name: MYSQL_USER
+        value: "mongooseim"
+      - name: MYSQL_PASSWORD
+        value: "mongooseim_secret"
+    ports:
+      - name: mysql
+        containerPort: 3306
+        protocol: TCP
+
+extraVolumes: []
+extraVolumeMounts: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
