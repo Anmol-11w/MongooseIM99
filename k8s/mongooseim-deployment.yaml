@@ -14,10 +14,6 @@ spec:
       labels:
         app: mongooseim
     spec:
-      # pull secret so Kubernetes can access GHCR
-      imagePullSecrets:
-        - name: ghcr-secret
-
       containers:
         - name: mongooseim
           image: ghcr.io/anmol-11w/mongooseim99:latest

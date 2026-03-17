@@ -4,12 +4,11 @@
 replicaCount: 2
 
 image:
-  repository: ghcr.io/esl/mongooseim
-  tag: ""         
+  repository: ghcr.io/anmol-11w/mongooseim99
+  tag: "latest"
   pullPolicy: Always
 
 imagePullSecrets: []
-# - name: ghcr-secret
 
 nameOverride: ""
 fullnameOverride: ""
