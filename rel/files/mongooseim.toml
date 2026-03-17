@@ -31,6 +31,14 @@
     host = "_"
     path = "/ws-xmpp"
 
+  [[listen.http.handlers.mongoose_w_admin]]
+    host = "_"
+    path = "/admin"
+
+  [[listen.http.handlers.mongoose_api_health]]
+    host = "_"
+    path = "/health"
+
 [[listen.http]]
   port = {{{https_port}}}
   transport.num_acceptors = 10
@@ -174,11 +182,8 @@
   backend = {{{bosh_backend}}}
   {{/bosh_backend}}
 
-{{#service_domain_db}}
 [services.service_domain_db]
-{{{service_domain_db}}}
 
-{{/service_domain_db}}
 [services.service_mongoose_system_metrics]
 
 [modules.mod_adhoc]
