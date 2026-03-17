@@ -159,12 +159,12 @@
   workers = 5
 
   [outgoing_pools.rdbms.default.connection]
-    driver = "pgsql"
+    driver = "mysql"
     host = "localhost"
     database = "mongooseim"
     username = "mongooseim"
     password = "mongooseim"
-    tls.required = true
+    tls.required = false
     tls.cacertfile = "priv/ssl/cacert.pem"
     tls.server_name_indication.enabled = false
 {{/outgoing_pools}}
