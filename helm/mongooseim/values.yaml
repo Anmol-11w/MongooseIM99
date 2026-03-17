@@ -7,6 +7,14 @@ image:
   tag: "latest"
   pullPolicy: Always
 
+mysqlBackend:
+  enabled: true
+  host: "127.0.0.1"
+  port: 3306
+  database: "mongooseim"
+  username: "mongooseim"
+  password: "mongooseim"
+
 imagePullSecrets:
   - name: ghcr-secret
 
@@ -52,13 +60,13 @@ resources:
 livenessProbe:
   tcpSocket:
     port: xmpp-client
-  initialDelaySeconds: 30
+  initialDelaySeconds: 120
   periodSeconds: 15
 
 readinessProbe:
   tcpSocket:
     port: xmpp-client
-  initialDelaySeconds: 20
+  initialDelaySeconds: 60
   periodSeconds: 10
 
 env: []
@@ -89,6 +97,24 @@ extraContainers:
         value: "mongooseim"
       - name: MYSQL_PASSWORD
         value: "mongooseim"
+    command:
+      - sh
+      - -ec
+      - |
+        docker-entrypoint.sh mysqld &
+        pid="$!"
+        echo "Waiting for MySQL to accept connections..."
+        until mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent; do
+          sleep 2
+        done
+        if ! mysql -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" -D "$MYSQL_DATABASE" -Nse "SHOW TABLES LIKE 'mongoose_cluster_id'" | grep -q mongoose_cluster_id; then
+          mysql -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" < /schema/mysql.sql
+        fi
+        wait "$pid"
+    volumeMounts:
+      - name: mysql-schema
+        mountPath: /schema
+        readOnly: true
     ports:
       - name: mysql
         containerPort: 3306
