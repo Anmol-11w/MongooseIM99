@@ -97,10 +97,33 @@ extraContainers:
         value: "mongooseim"
       - name: MYSQL_PASSWORD
         value: "mongooseim"
-    volumeMounts:
-      - name: mysql-schema
-        mountPath: /docker-entrypoint-initdb.d
-        readOnly: true
+    command:
+      - sh
+      - -ec
+      - |
+        docker-entrypoint.sh mysqld &
+        pid="$!"
+        until mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent; do
+          sleep 2
+        done
+        mysql -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS ${MYSQL_DATABASE};"
+        mysql -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" <<'SQL'
+        CREATE TABLE IF NOT EXISTS users (
+            username varchar(250),
+            server varchar(250),
+            password text NOT NULL,
+            pass_details text,
+            created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (server, username)
+        ) CHARACTER SET utf8mb4
+          ROW_FORMAT=DYNAMIC;
+
+        CREATE TABLE IF NOT EXISTS mongoose_cluster_id (
+            k varchar(50) PRIMARY KEY,
+            v text
+        );
+        SQL
+        wait "$pid"
     ports:
       - name: mysql
         containerPort: 3306
