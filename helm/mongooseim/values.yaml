@@ -88,7 +88,7 @@ extraContainers:
       - name: MYSQL_USER
         value: "mongooseim"
       - name: MYSQL_PASSWORD
-        value: "mongooseim_secret"
+        value: "mongooseim"
     ports:
       - name: mysql
         containerPort: 3306
