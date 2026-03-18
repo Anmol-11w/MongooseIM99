@@ -14,4 +14,7 @@ spec:
       port: {{ $port.port }}
       targetPort: {{ $name | kebabcase }}
       protocol: {{ $port.protocol | default "TCP" }}
+      {{- if $port.nodePort }}
+      nodePort: {{ $port.nodePort }}
+      {{- end }}
     {{- end }}
