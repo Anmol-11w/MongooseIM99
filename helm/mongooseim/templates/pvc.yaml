@@ -1,0 +1,17 @@
+{{- if .Values.mysqlPersistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mongooseim.fullname" . }}-mysql-data
+  labels:
+    {{- include "mongooseim.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.mysqlPersistence.size }}
+  {{- if .Values.mysqlPersistence.storageClass }}
+  storageClassName: {{ .Values.mysqlPersistence.storageClass }}
+  {{- end }}
+{{- end }}

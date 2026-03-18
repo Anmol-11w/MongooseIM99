@@ -128,10 +128,21 @@ extraContainers:
       - name: mysql
         containerPort: 3306
         protocol: TCP
+    volumeMounts:
+      - name: mysql-data
+        mountPath: /var/lib/mysql
 
-extraVolumes: []
+extraVolumes:
+  - name: mysql-data
+    persistentVolumeClaim:
+      claimName: mim-mongooseim-mysql-data
 extraVolumeMounts: []
 
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+mysqlPersistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
