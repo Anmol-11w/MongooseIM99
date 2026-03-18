@@ -9,7 +9,7 @@ image:
 
 mysqlBackend:
   enabled: true
-  host: "127.0.0.1"
+  host: "mim-mongooseim-mysql"
   port: 3306
   database: "mongooseim"
   username: "mongooseim"
@@ -85,63 +85,7 @@ extraContainers:
         containerPort: 6379
         protocol: TCP
 
-  - name: mysql
-    image: mysql:8.0
-    imagePullPolicy: IfNotPresent
-    env:
-      - name: MYSQL_ROOT_PASSWORD
-        value: "secret"
-      - name: MYSQL_DATABASE
-        value: "mongooseim"
-      - name: MYSQL_USER
-        value: "mongooseim"
-      - name: MYSQL_PASSWORD
-        value: "mongooseim"
-    command:
-      - sh
-      - -ec
-      - |
-        docker-entrypoint.sh mysqld &
-        pid="$!"
-        until mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent; do
-          sleep 2
-        done
-        mysql -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS ${MYSQL_DATABASE};"
-        mysql -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" <<'SQL'
-        CREATE TABLE IF NOT EXISTS users (
-            username varchar(250),
-            server varchar(250),
-            password text NOT NULL,
-            pass_details text,
-            created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (server, username)
-        ) CHARACTER SET utf8mb4
-          ROW_FORMAT=DYNAMIC;
-
-        CREATE TABLE IF NOT EXISTS mongoose_cluster_id (
-            k varchar(50) PRIMARY KEY,
-            v text
-        );
-        SQL
-        wait "$pid"
-    ports:
-      - name: mysql
-        containerPort: 3306
-        protocol: TCP
-    volumeMounts:
-      - name: mysql-data
-        mountPath: /var/lib/mysql
-
 extraVolumes:
-  - name: mysql-data
-    persistentVolumeClaim:
-      claimName: mim-mongooseim-mysql-data
-extraVolumeMounts: []
-
-nodeSelector: {}
-tolerations: []
-affinity: {}
-
 mysqlPersistence:
   enabled: true
   size: 1Gi
