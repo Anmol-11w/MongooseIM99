@@ -54,6 +54,8 @@ spec:
               if ! grep -q '^\[auth.rdbms\]' "$CONF"; then
                 printf '\n[auth.rdbms]\n' >> "$CONF"
               fi
+              sed -i '/^\[auth\.internal\]/d' "$CONF"
+              sed -i '/^\[internal_databases\.mnesia\]/d' "$CONF"
 
               sed -i '/^[[:space:]]*outgoing_pools\.rdbms\.default\./d' "$CONF"
 
