@@ -34,7 +34,7 @@ podSecurityContext: {}
 securityContext: {}
 
 service:
-  type: ClusterIP
+  type: NodePort
   ports:
     xmppClient:
       port: 5222
