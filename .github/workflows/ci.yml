@@ -70,7 +70,7 @@ jobs:
 
 
 # =====================================================
-# BIG TESTS (NON-BLOCKING – INFORMATIVE ONLY)
+# BIG TESTS (NON-BLOCKING )
 # =====================================================
   big_tests:
     name: ${{ matrix.preset }} on OTP ${{ matrix.otp }}
