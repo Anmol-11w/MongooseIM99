@@ -350,25 +350,3 @@ jobs:
             kubectl rollout restart deployment mim-mongooseim -n mim
             kubectl rollout status deployment mim-mongooseim -n mim
 
-# =====================================================
-# AUTO DEPLOY
-# =====================================================
-  deploy:
-    name: Deploy to production
-    runs-on: ubuntu-22.04
-    needs: docker_image
-    if: github.ref_name == 'main'
-
-    steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            cd /opt/MongooseIM99
-            git pull origin main
-            helm upgrade mim helm/mongooseim -n mim
-            kubectl rollout restart deployment mim-mongooseim -n mim
-            kubectl rollout status deployment mim-mongooseim -n mim
