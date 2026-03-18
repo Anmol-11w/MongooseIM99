@@ -347,7 +347,7 @@ jobs:
             export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
             cd /opt/MongooseIM99
             git pull origin main
-            helm upgrade mim helm/mongooseim -n mim
+            
             kubectl set image deployment/mim-mongooseim mongooseim=ghcr.io/anmol-11w/mongooseim99:latest -n mim
             
 
