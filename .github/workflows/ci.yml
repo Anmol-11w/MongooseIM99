@@ -339,18 +339,28 @@ jobs:
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          SHORT_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: SHORT_SHA
           script: |
             export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
             cd /opt/MongooseIM99
             git pull origin main
-            
-            SHORT_SHA="${GITHUB_SHA:0:7}"
+            SHORT_SHA="${SHORT_SHA:0:7}"
+            echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
             kubectl set image deployment/mim-mongooseim mongooseim=ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA} -n mim
+            echo "⏳ Waiting for rollout..."
             kubectl rollout status deployment/mim-mongooseim -n mim --timeout=300s
+            echo "✅ Deployment complete!"
+            echo "📦 Running pods:"
+            kubectl get pods -n mim
+            echo "🔍 Image verification:"
+            kubectl get pods -n mim -o jsonpath='{range .items[*]}{.metadata.name}{" → "}{.status.containerStatuses[0].imageID}{"
+"}{end}'
             
 
 
