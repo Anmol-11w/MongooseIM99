@@ -358,8 +358,7 @@ jobs:
             echo "📦 Running pods:"
             kubectl get pods -n mim
             echo "🔍 Image verification:"
-            kubectl get pods -n mim -o jsonpath='{range .items[*]}{.metadata.name}{" → "}{.status.containerStatuses[0].imageID}{"
-"}{end}'
+            kubectl get pods -n mim -o jsonpath='{range .items[*]}{.metadata.name}{" -> "}{.status.containerStatuses[0].imageID}{"\n"}{end}'
 
 # =====================================================
 # MONITORING DEPLOY
