@@ -351,3 +351,29 @@ jobs:
             kubectl set image deployment/mim-mongooseim mongooseim=ghcr.io/anmol-11w/mongooseim99:latest -n mim
             
 
+
+# =====================================================
+# MONITORING DEPLOY
+# =====================================================
+  deploy_monitoring:
+    name: Deploy monitoring stack
+    runs-on: ubuntu-22.04
+    needs: docker_image
+    if: github.ref_name == 'main'
+
+    steps:
+      - name: Deploy monitoring via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+            cd /opt/MongooseIM99
+            helm repo add grafana https://grafana.github.io/helm-charts || true
+            helm repo update
+            helm upgrade --install loki grafana/loki-stack \
+              --namespace monitoring \
+              --create-namespace \
+              -f monitoring-values.yaml
