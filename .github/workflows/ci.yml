@@ -1,5 +1,4 @@
 name: CI
-
 on:
   push:
     branches: [ main, ci ]
@@ -361,8 +360,6 @@ jobs:
             echo "🔍 Image verification:"
             kubectl get pods -n mim -o jsonpath='{range .items[*]}{.metadata.name}{" → "}{.status.containerStatuses[0].imageID}{"
 "}{end}'
-            
-
 
 # =====================================================
 # MONITORING DEPLOY
