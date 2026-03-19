@@ -349,6 +349,7 @@ jobs:
             git pull origin main
             
             kubectl set image deployment/mim-mongooseim mongooseim=ghcr.io/anmol-11w/mongooseim99:latest -n mim
+            kubectl rollout status deployment/mim-mongooseim -n mim --timeout=120s
             
 
 
@@ -362,7 +363,21 @@ jobs:
     if: github.ref_name == 'main'
 
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if monitoring changed
+        id: check
+        run: |
+          if git diff HEAD~1 HEAD -- monitoring-values.yaml | grep -q .; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Deploy monitoring via SSH
+        if: steps.check.outputs.changed == 'true'
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
