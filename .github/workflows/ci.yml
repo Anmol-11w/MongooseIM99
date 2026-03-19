@@ -348,7 +348,9 @@ jobs:
             cd /opt/MongooseIM99
             git pull origin main
             
-            kubectl set image deployment/mim-mongooseim mongooseim=ghcr.io/anmol-11w/mongooseim99:latest -n mim
+            IMAGE_SHA=$(kubectl get deployment mim-mongooseim -n mim -o jsonpath='{.spec.template.spec.containers[0].image}' | cut -d: -f1)
+            LATEST_SHA=$(docker manifest inspect ghcr.io/anmol-11w/mongooseim99:latest 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['config']['digest'][:19])" 2>/dev/null || echo "latest")
+            kubectl rollout restart deployment/mim-mongooseim -n mim
             kubectl rollout status deployment/mim-mongooseim -n mim --timeout=120s
             
 
