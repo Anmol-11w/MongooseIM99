@@ -348,7 +348,8 @@ jobs:
             cd /opt/MongooseIM99
             git pull origin main
             
-            kubectl rollout restart deployment/mim-mongooseim -n mim
+            SHORT_SHA="${GITHUB_SHA:0:7}"
+            kubectl set image deployment/mim-mongooseim mongooseim=ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA} -n mim
             kubectl rollout status deployment/mim-mongooseim -n mim --timeout=300s
             
 
