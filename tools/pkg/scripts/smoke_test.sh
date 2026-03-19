@@ -59,9 +59,14 @@ echo "$BAD_BOOTSTRAP_RESULT" | grep "It should fail"
 
 echo "Configuring auth for smoke test (no MySQL available)"
 MIM_CONF=/etc/mongooseim/mongooseim.toml
-sed -i '/^[[:space:]]*\[auth\.internal\]/d' "$MIM_CONF" || true
+# Remove rdbms auth
 sed -i '/^[[:space:]]*\[auth\.rdbms\]/d' "$MIM_CONF" || true
-grep -q '\[auth\.internal\]' "$MIM_CONF" || printf '\n[auth.internal]\n' >> "$MIM_CONF"
+# Remove auth.internal if exists to avoid duplicate
+sed -i '/^[[:space:]]*\[auth\.internal\]/d' "$MIM_CONF" || true
+# Add auth.internal after [auth] section
+sed -i '/^\[auth\]$/a\  [auth.internal]' "$MIM_CONF" || true
+# Remove entire rdbms outgoing pool section
+awk 'BEGIN{skip=0} /^\[outgoing_pools\.rdbms/{skip=1} skip && /^\[/ && !/^\[outgoing_pools\.rdbms/{skip=0} !skip{print}' "$MIM_CONF" > /tmp/mim_conf_tmp && mv /tmp/mim_conf_tmp "$MIM_CONF" || true
 
 echo "Starting mongooseim via 'mongooseimctl start'"
 mongooseimctl start
