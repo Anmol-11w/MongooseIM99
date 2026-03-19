@@ -57,6 +57,12 @@ BAD_BOOTSTRAP_RESULT=$(mongooseimctl bootstrap || echo "It should fail")
 echo "$BAD_BOOTSTRAP_RESULT" | grep "It should fail"
 
 
+echo "Configuring auth for smoke test (no MySQL available)"
+MIM_CONF=$(mongooseimctl print_install_dir)/etc/mongooseim.toml
+sed -i '/^[[:space:]]*\[auth\.internal\]/d' "$MIM_CONF" || true
+sed -i '/^[[:space:]]*\[auth\.rdbms\]/d' "$MIM_CONF" || true
+grep -q '\[auth\.internal\]' "$MIM_CONF" || printf '\n[auth.internal]\n' >> "$MIM_CONF"
+
 echo "Starting mongooseim via 'mongooseimctl start'"
 mongooseimctl start
 
