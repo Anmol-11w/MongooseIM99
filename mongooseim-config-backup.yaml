@@ -1,0 +1,279 @@
+apiVersion: v1
+data:
+  mongooseim.toml: |
+    [general]
+      loglevel = "warning"
+      hosts = ["xmpp-mongo.wingtrill.com"]
+      host_types = []
+      default_server_domain = "xmpp-mongo.wingtrill.com"
+      registration_timeout = "infinity"
+      language = "en"
+
+    [[listen.http]]
+      port = 5280
+      transport.num_acceptors = 10
+      transport.max_connections = 1024
+
+      [[listen.http.handlers.mongoose_bosh_handler]]
+        host = "_"
+        path = "/http-bind"
+
+      [[listen.http.handlers.mongoose_websocket_handler]]
+        host = "_"
+        path = "/ws-xmpp"
+
+    [[listen.http]]
+      port = 5285
+      transport.num_acceptors = 10
+      transport.max_connections = 1024
+      tls.verify_mode = "none"
+      tls.certfile = "priv/ssl/fake_cert.pem"
+      tls.keyfile = "priv/ssl/fake_key.pem"
+
+      [[listen.http.handlers.mongoose_bosh_handler]]
+        host = "_"
+        path = "/http-bind"
+
+      [[listen.http.handlers.mongoose_websocket_handler]]
+        host = "_"
+        path = "/ws-xmpp"
+
+    [[listen.http]]
+      ip_address = "127.0.0.1"
+      port = 5551
+      transport.num_acceptors = 10
+      transport.max_connections = 1024
+
+      [[listen.http.handlers.mongoose_graphql_handler]]
+        host = "localhost"
+        path = "/api/graphql"
+        schema_endpoint = "admin"
+        username = "admin"
+        password = "secret"
+
+    [[listen.http]]
+      ip_address = "0.0.0.0"
+      port = 5541
+      transport.num_acceptors = 10
+      transport.max_connections = 1024
+
+      [[listen.http.handlers.mongoose_graphql_handler]]
+        host = "_"
+        path = "/api/graphql"
+        schema_endpoint = "domain_admin"
+
+    [[listen.http]]
+      ip_address = "0.0.0.0"
+      port = 5561
+      transport.num_acceptors = 10
+      transport.max_connections = 1024
+
+      [[listen.http.handlers.mongoose_graphql_handler]]
+        host = "_"
+        path = "/api/graphql"
+        schema_endpoint = "user"
+
+    [[listen.http]]
+      port = 9091
+      transport.num_acceptors = 10
+
+      [[listen.http.handlers.mongoose_prometheus_handler]]
+        host = "_"
+        path = "/metrics"
+
+    [[listen.c2s]]
+      port = 5222
+      access = "c2s"
+      shaper = "normal"
+      max_stanza_size = 65536
+      tls.verify_mode = "none"
+      tls.certfile = "priv/ssl/fake_cert.pem"
+      tls.keyfile = "priv/ssl/fake_key.pem"
+
+    [[listen.s2s]]
+      port = 5269
+      shaper = "fast"
+      max_stanza_size = 131072
+      tls.verify_mode = "none"
+      tls.certfile = "priv/ssl/fake_cert.pem"
+      tls.keyfile = "priv/ssl/fake_key.pem"
+
+    [[listen.component]]
+      port = 8888
+      access = "all"
+      shaper = "fast"
+      ip_address = "127.0.0.1"
+      password = "secret"
+
+    [auth]
+
+      # methods
+      [auth.internal]
+
+    [internal_databases.mnesia]
+
+    [outgoing_pools.rdbms.default]
+      scope = "global"
+      workers = 5
+
+      [outgoing_pools.rdbms.default.connection]
+        driver = "mysql"
+        host = "127.0.0.1"
+        port = 3306
+        database = "mongooseim"
+        username = "mongooseim"
+        password = "mongooseim"
+
+    [outgoing_pools.redis.global_distrib]
+      scope = "global"
+      workers = 10
+
+      [outgoing_pools.redis.global_distrib.connection]
+        host = "127.0.0.1"
+        port = 6379
+
+
+    [services.service_bosh]
+
+    [services.service_mongoose_system_metrics]
+
+    [modules.mod_adhoc]
+
+    [modules.mod_disco]
+      users_can_see_hidden_services = false
+
+    [modules.mod_stream_management]
+
+    [modules.mod_register]
+      ip_access = [
+        {address = "127.0.0.0/8", policy = "allow"},
+        {address = "0.0.0.0/0", policy = "deny"}
+      ]
+      access = "register"
+
+    [modules.mod_presence]
+
+    [modules.mod_sic]
+
+    [modules.mod_vcard]
+      host = "vjud.@HOST@"
+
+
+    [modules.mod_carboncopy]
+
+    [instrumentation.prometheus]
+
+    [instrumentation.log]
+
+    [shaper.normal]
+      max_rate = 16_384
+
+    [shaper.fast]
+      max_rate = 50_000
+
+    [shaper.mam_shaper]
+      max_rate = 1
+
+    [shaper.mam_global_shaper]
+      max_rate = 1000
+
+    [acl]
+      local = [{}]
+
+    [access]
+      max_user_sessions = [
+        {acl = "all", value = 1000}
+      ]
+
+      max_user_offline_messages = [
+        {acl = "admin", value = 5000},
+        {acl = "all", value = 100}
+      ]
+
+      local = [
+        {acl = "local", value = "allow"}
+      ]
+
+      c2s = [
+        {acl = "blocked", value = "deny"},
+        {acl = "all", value = "allow"}
+      ]
+
+      muc_admin = [
+        {acl = "admin", value = "allow"}
+      ]
+
+      muc_create = [
+        {acl = "local", value = "allow"}
+      ]
+
+      muc = [
+        {acl = "all", value = "allow"}
+      ]
+
+      register = [
+        {acl = "all", value = "allow"}
+      ]
+
+      mam_set_prefs = [
+        {acl = "all", value = "default"}
+      ]
+
+      mam_get_prefs = [
+        {acl = "all", value = "default"}
+      ]
+
+      mam_lookup_messages = [
+        {acl = "all", value = "default"}
+      ]
+
+      mam_set_prefs_shaper = [
+        {acl = "all", value = "mam_shaper"}
+      ]
+
+      mam_get_prefs_shaper = [
+        {acl = "all", value = "mam_shaper"}
+      ]
+
+      mam_lookup_messages_shaper = [
+        {acl = "all", value = "mam_shaper"}
+      ]
+
+      mam_set_prefs_global_shaper = [
+        {acl = "all", value = "mam_global_shaper"}
+      ]
+
+      mam_get_prefs_global_shaper = [
+        {acl = "all", value = "mam_global_shaper"}
+      ]
+
+      mam_lookup_messages_global_shaper = [
+        {acl = "all", value = "mam_global_shaper"}
+      ]
+
+    [s2s]
+      default_policy = "deny"
+
+      [s2s.outgoing]
+        port = 5269
+        tls.mode = "starttls"
+        tls.verify_mode = "none"
+        tls.certfile = "priv/ssl/fake_cert.pem"
+        tls.keyfile = "priv/ssl/fake_key.pem"
+
+    #[[host_config]]
+    #  host = "anonymous.localhost"
+    #
+    #  [host_config.auth.anonymous]
+    #    allow_multiple_connections = true
+    #    protocol = "both"
+kind: ConfigMap
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","data":{"mongooseim.toml":"[general]\n  loglevel = \"warning\"\n  hosts = [\"xmpp-mongo.wingtrill.com\"]\n  host_types = []\n  default_server_domain = \"xmpp-mongo.wingtrill.com\"\n  registration_timeout = \"infinity\"\n  language = \"en\"\n\n[[listen.http]]\n  port = 5280\n  transport.num_acceptors = 10\n  transport.max_connections = 1024\n\n  [[listen.http.handlers.mongoose_bosh_handler]]\n    host = \"_\"\n    path = \"/http-bind\"\n\n  [[listen.http.handlers.mongoose_websocket_handler]]\n    host = \"_\"\n    path = \"/ws-xmpp\"\n\n[[listen.http]]\n  port = 5285\n  transport.num_acceptors = 10\n  transport.max_connections = 1024\n  tls.verify_mode = \"none\"\n  tls.certfile = \"priv/ssl/fake_cert.pem\"\n  tls.keyfile = \"priv/ssl/fake_key.pem\"\n\n  [[listen.http.handlers.mongoose_bosh_handler]]\n    host = \"_\"\n    path = \"/http-bind\"\n\n  [[listen.http.handlers.mongoose_websocket_handler]]\n    host = \"_\"\n    path = \"/ws-xmpp\"\n\n[[listen.http]]\n  ip_address = \"127.0.0.1\"\n  port = 5551\n  transport.num_acceptors = 10\n  transport.max_connections = 1024\n\n  [[listen.http.handlers.mongoose_graphql_handler]]\n    host = \"localhost\"\n    path = \"/api/graphql\"\n    schema_endpoint = \"admin\"\n    username = \"admin\"\n    password = \"secret\"\n\n[[listen.http]]\n  ip_address = \"0.0.0.0\"\n  port = 5541\n  transport.num_acceptors = 10\n  transport.max_connections = 1024\n\n  [[listen.http.handlers.mongoose_graphql_handler]]\n    host = \"_\"\n    path = \"/api/graphql\"\n    schema_endpoint = \"domain_admin\"\n\n[[listen.http]]\n  ip_address = \"0.0.0.0\"\n  port = 5561\n  transport.num_acceptors = 10\n  transport.max_connections = 1024\n\n  [[listen.http.handlers.mongoose_graphql_handler]]\n    host = \"_\"\n    path = \"/api/graphql\"\n    schema_endpoint = \"user\"\n\n[[listen.http]]\n  port = 9091\n  transport.num_acceptors = 10\n\n  [[listen.http.handlers.mongoose_prometheus_handler]]\n    host = \"_\"\n    path = \"/metrics\"\n\n[[listen.c2s]]\n  port = 5222\n  access = \"c2s\"\n  shaper = \"normal\"\n  max_stanza_size = 65536\n  tls.verify_mode = \"none\"\n  tls.certfile = \"priv/ssl/fake_cert.pem\"\n  tls.keyfile = \"priv/ssl/fake_key.pem\"\n\n[[listen.s2s]]\n  port = 5269\n  shaper = \"fast\"\n  max_stanza_size = 131072\n  tls.verify_mode = \"none\"\n  tls.certfile = \"priv/ssl/fake_cert.pem\"\n  tls.keyfile = \"priv/ssl/fake_key.pem\"\n\n[[listen.component]]\n  port = 8888\n  access = \"all\"\n  shaper = \"fast\"\n  ip_address = \"127.0.0.1\"\n  password = \"secret\"\n\n[auth]\n\n  # methods\n  [auth.internal]\n\n[internal_databases.mnesia]\n\n[outgoing_pools.rdbms.default]\n  scope = \"global\"\n  workers = 5\n\n  [outgoing_pools.rdbms.default.connection]\n    driver = \"mysql\"\n    host = \"127.0.0.1\"\n    port = 3306\n    database = \"mongooseim\"\n    username = \"mongooseim\"\n    password = \"mongooseim\"\n\n[outgoing_pools.redis.global_distrib]\n  scope = \"global\"\n  workers = 10\n\n  [outgoing_pools.redis.global_distrib.connection]\n    host = \"127.0.0.1\"\n    port = 6379\n\n\n[services.service_bosh]\n\n[services.service_mongoose_system_metrics]\n\n[modules.mod_adhoc]\n\n[modules.mod_disco]\n  users_can_see_hidden_services = false\n\n[modules.mod_stream_management]\n\n[modules.mod_register]\n  ip_access = [\n    {address = \"127.0.0.0/8\", policy = \"allow\"},\n    {address = \"0.0.0.0/0\", policy = \"deny\"}\n  ]\n  access = \"register\"\n\n[modules.mod_presence]\n\n[modules.mod_sic]\n\n[modules.mod_vcard]\n  host = \"vjud.@HOST@\"\n\n\n[modules.mod_carboncopy]\n\n[instrumentation.prometheus]\n\n[instrumentation.log]\n\n[shaper.normal]\n  max_rate = 16_384\n\n[shaper.fast]\n  max_rate = 50_000\n\n[shaper.mam_shaper]\n  max_rate = 1\n\n[shaper.mam_global_shaper]\n  max_rate = 1000\n\n[acl]\n  local = [{}]\n\n[access]\n  max_user_sessions = [\n    {acl = \"all\", value = 1000}\n  ]\n\n  max_user_offline_messages = [\n    {acl = \"admin\", value = 5000},\n    {acl = \"all\", value = 100}\n  ]\n\n  local = [\n    {acl = \"local\", value = \"allow\"}\n  ]\n\n  c2s = [\n    {acl = \"blocked\", value = \"deny\"},\n    {acl = \"all\", value = \"allow\"}\n  ]\n\n  muc_admin = [\n    {acl = \"admin\", value = \"allow\"}\n  ]\n\n  muc_create = [\n    {acl = \"local\", value = \"allow\"}\n  ]\n\n  muc = [\n    {acl = \"all\", value = \"allow\"}\n  ]\n\n  register = [\n    {acl = \"all\", value = \"allow\"}\n  ]\n\n  mam_set_prefs = [\n    {acl = \"all\", value = \"default\"}\n  ]\n\n  mam_get_prefs = [\n    {acl = \"all\", value = \"default\"}\n  ]\n\n  mam_lookup_messages = [\n    {acl = \"all\", value = \"default\"}\n  ]\n\n  mam_set_prefs_shaper = [\n    {acl = \"all\", value = \"mam_shaper\"}\n  ]\n\n  mam_get_prefs_shaper = [\n    {acl = \"all\", value = \"mam_shaper\"}\n  ]\n\n  mam_lookup_messages_shaper = [\n    {acl = \"all\", value = \"mam_shaper\"}\n  ]\n\n  mam_set_prefs_global_shaper = [\n    {acl = \"all\", value = \"mam_global_shaper\"}\n  ]\n\n  mam_get_prefs_global_shaper = [\n    {acl = \"all\", value = \"mam_global_shaper\"}\n  ]\n\n  mam_lookup_messages_global_shaper = [\n    {acl = \"all\", value = \"mam_global_shaper\"}\n  ]\n\n[s2s]\n  default_policy = \"deny\"\n\n  [s2s.outgoing]\n    port = 5269\n    tls.mode = \"starttls\"\n    tls.verify_mode = \"none\"\n    tls.certfile = \"priv/ssl/fake_cert.pem\"\n    tls.keyfile = \"priv/ssl/fake_key.pem\"\n\n#[[host_config]]\n#  host = \"anonymous.localhost\"\n#\n#  [host_config.auth.anonymous]\n#    allow_multiple_connections = true\n#    protocol = \"both\"\n"},"kind":"ConfigMap","metadata":{"annotations":{},"creationTimestamp":"2026-03-17T13:39:29Z","name":"mongooseim-config","namespace":"mim","resourceVersion":"32887","uid":"bfab8245-1a47-450f-8c38-ebe424aa6aa1"}}
+  creationTimestamp: "2026-03-17T13:39:29Z"
+  name: mongooseim-config
+  namespace: mim
+  resourceVersion: "88639"
+  uid: bfab8245-1a47-450f-8c38-ebe424aa6aa1

@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: amoc
+  namespace: mim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: amoc
+  template:
+    metadata:
+      labels:
+        app: amoc
+    spec:
+      containers:
+      - name: amoc
+        image: mongooseim/amoc:latest
+        env:
+        - name: MIM_HOST
+          value: "mim-mongooseim.mim.svc.cluster.local"
+        - name: MIM_PORT
+          value: "5222"
+        - name: XMPP_DOMAIN
+          value: "xmpp-mongo.wingtrill.com"
+        - name: AMOC_XMPP_PASSWORD
+          value: "testpass123"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: amoc
+  namespace: mim
+spec:
+  selector:
+    app: amoc
+  ports:
+  - port: 4000
+    targetPort: 4000
+    nodePort: 31400
+  type: NodePort

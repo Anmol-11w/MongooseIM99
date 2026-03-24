@@ -52,6 +52,10 @@ service:
       port: 8888
       nodePort: 30888
       protocol: TCP
+    metrics:
+      port: 9091
+      nodePort: 30091
+      protocol: TCP
 
 resources:
   requests:
