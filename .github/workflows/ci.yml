@@ -357,19 +357,9 @@ jobs:
             git pull --ff-only origin "${DEPLOY_REF}"
             SHORT_SHA="${SHORT_SHA:0:7}"
             echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
-            helm upgrade --install mim helm/mongooseim \
-              --namespace mim \
-              --create-namespace \
-              -f helm/mongooseim/values.yaml \
-              --set image.tag="sha-${SHORT_SHA}"
-            echo "🧹 Removing legacy MySQL resources (if present)..."
-            kubectl delete deployment mim-mongooseim-mysql -n mim --ignore-not-found=true || true
-            kubectl delete statefulset mim-mongooseim-mysql -n mim --ignore-not-found=true || true
-            kubectl delete service mim-mongooseim-mysql -n mim --ignore-not-found=true || true
-            kubectl delete pvc mim-mongooseim-mysql-data -n mim --ignore-not-found=true || true
-            kubectl delete pvc mim-mongooseim-mysql-pvc -n mim --ignore-not-found=true || true
+            echo "🔄 Updating only MongooseIM app container image (no Helm reconcile)..."
+            kubectl set image deployment/mim-mongooseim mongooseim=ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA} -n mim
             echo "⏳ Waiting for rollout..."
-            kubectl rollout status deployment/mim-mongooseim-postgresql -n mim --timeout=300s || true
             kubectl rollout status deployment/mim-mongooseim -n mim --timeout=300s
             echo "✅ Deployment complete!"
             echo "🐘 PostgreSQL pods (if running):"

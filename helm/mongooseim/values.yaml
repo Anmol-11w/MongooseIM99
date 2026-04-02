@@ -34,6 +34,26 @@ postgresql:
       cpu: "1"
       memory: "512Mi"
 
+redisBackend:
+  enabled: true
+  host: "mim-mongooseim-redis"
+  port: 6379
+  database: 0
+  username: ""
+  password: ""
+
+redis:
+  enabled: true
+  image: redis:7
+  imagePullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
 imagePullSecrets:
   - name: ghcr-secret
 
@@ -99,19 +119,17 @@ readinessProbe:
 env: []
 envFrom: []
 
-extraContainers:
-  - name: redis
-    image: redis:7
-    imagePullPolicy: IfNotPresent
-    ports:
-      - name: redis
-        containerPort: 6379
-        protocol: TCP
+extraContainers: []
 
 extraVolumes: []
 extraVolumeMounts: []
 
 postgresqlPersistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
+
+redisPersistence:
   enabled: true
   size: 1Gi
   storageClass: ""

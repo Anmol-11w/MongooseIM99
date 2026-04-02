@@ -15,3 +15,22 @@ spec:
   storageClassName: {{ .Values.postgresqlPersistence.storageClass }}
   {{- end }}
 {{- end }}
+
+{{- if .Values.redisPersistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mongooseim.fullname" . }}-redis-data
+  labels:
+    {{- include "mongooseim.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.redisPersistence.size }}
+  {{- if .Values.redisPersistence.storageClass }}
+  storageClassName: {{ .Values.redisPersistence.storageClass }}
+  {{- end }}
+{{- end }}

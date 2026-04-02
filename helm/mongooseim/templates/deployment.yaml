@@ -36,7 +36,7 @@ spec:
         - name: mongooseim
           image: {{ include "mongooseim.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- if .Values.postgresqlBackend.enabled }}
+          {{- if or .Values.postgresqlBackend.enabled .Values.redisBackend.enabled }}
           command:
             - /bin/bash
             - -ec
@@ -46,6 +46,7 @@ spec:
               cp /etc/mongooseim/mongooseim.toml "$CONF"
               export EJABBERD_CONFIG_PATH="$CONF"
               echo "Using EJABBERD_CONFIG_PATH=$EJABBERD_CONFIG_PATH"
+              {{- if .Values.postgresqlBackend.enabled }}
               for i in $(seq 1 120); do
                 (echo > /dev/tcp/{{ .Values.postgresqlBackend.host }}/{{ .Values.postgresqlBackend.port }}) >/dev/null 2>&1 && break
                 sleep 1
@@ -68,8 +69,31 @@ spec:
               mv "${CONF}.new" "$CONF"
 
               printf '\n[outgoing_pools.rdbms.default]\n  scope = "global"\n  workers = 5\n\n  [outgoing_pools.rdbms.default.connection]\n    driver = "pgsql"\n    host = "{{ .Values.postgresqlBackend.host }}"\n    port = {{ .Values.postgresqlBackend.port }}\n    database = "{{ .Values.postgresqlBackend.database }}"\n    username = "{{ .Values.postgresqlBackend.username }}"\n    password = "{{ .Values.postgresqlBackend.password }}"\n' >> "$CONF"
+              {{- end }}
+              {{- if .Values.redisBackend.enabled }}
+              for i in $(seq 1 120); do
+                (echo > /dev/tcp/{{ .Values.redisBackend.host }}/{{ .Values.redisBackend.port }}) >/dev/null 2>&1 && break
+                sleep 1
+              done
+
+              awk '
+                BEGIN { skip = 0 }
+                /^\[outgoing_pools\.redis\.global_distrib(\.|\])/ { skip = 1 }
+                skip && /^\[/ && $0 !~ /^\[outgoing_pools\.redis\.global_distrib(\.|\])/ { skip = 0 }
+                !skip { print }
+              ' "$CONF" > "${CONF}.new"
+              mv "${CONF}.new" "$CONF"
+
+              printf '\n[outgoing_pools.redis.global_distrib]\n  scope = "global"\n  workers = 10\n\n  [outgoing_pools.redis.global_distrib.connection]\n    host = "{{ .Values.redisBackend.host }}"\n    port = {{ .Values.redisBackend.port }}\n    database = {{ .Values.redisBackend.database }}\n' >> "$CONF"
+              {{- if .Values.redisBackend.username }}
+              printf '    username = "{{ .Values.redisBackend.username }}"\n' >> "$CONF"
+              {{- end }}
+              {{- if .Values.redisBackend.password }}
+              printf '    password = "{{ .Values.redisBackend.password }}"\n' >> "$CONF"
+              {{- end }}
+              {{- end }}
               echo "Configured outgoing_pools in $CONF:"
-              grep -n 'outgoing_pools\.rdbms\.default\|driver = "pgsql"\|host = \|port = \|database = \|username = ' "$CONF" || true
+              grep -n 'outgoing_pools\.rdbms\.default\|outgoing_pools\.redis\.global_distrib\|driver = "pgsql"\|host = \|port = \|database = \|username = ' "$CONF" || true
               exec /usr/lib/mongooseim/bin/mongooseim foreground
           {{- end }}
           {{- with .Values.securityContext }}
