@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ CI ]
   pull_request:
-    branches: [ master ]
+    branches: [ CI ]
   workflow_dispatch:
 
 concurrency:
@@ -336,7 +336,7 @@ jobs:
     name: Deploy to production
     runs-on: ubuntu-22.04
     needs: docker_image
-    if: github.ref_name == 'master'
+    if: github.ref_name == 'CI'
 
     steps:
       - name: Deploy via SSH
@@ -376,7 +376,7 @@ jobs:
     name: Deploy monitoring stack
     runs-on: ubuntu-22.04
     needs: docker_image
-    if: github.ref_name == 'master'
+    if: github.ref_name == 'CI'
 
     steps:
       - uses: actions/checkout@v4
