@@ -343,23 +343,33 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           SHORT_SHA: ${{ github.sha }}
+          DEPLOY_REF: ${{ github.ref_name }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: SHORT_SHA
+          envs: SHORT_SHA,DEPLOY_REF
           script: |
             export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
             cd /opt/MongooseIM99
-            git pull origin master
+            git fetch origin "${DEPLOY_REF}"
+            git checkout "${DEPLOY_REF}" || git checkout -b "${DEPLOY_REF}" "origin/${DEPLOY_REF}"
+            git pull --ff-only origin "${DEPLOY_REF}"
             SHORT_SHA="${SHORT_SHA:0:7}"
             echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
-            kubectl set image deployment/mim-mongooseim mongooseim=ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA} -n mim
+            helm upgrade --install mim helm/mongooseim \
+              --namespace mim \
+              --create-namespace \
+              -f helm/mongooseim/values.yaml \
+              --set image.tag="sha-${SHORT_SHA}"
             echo "🧹 Removing legacy MySQL resources (if present)..."
             kubectl delete deployment mim-mongooseim-mysql -n mim --ignore-not-found=true || true
+            kubectl delete statefulset mim-mongooseim-mysql -n mim --ignore-not-found=true || true
             kubectl delete service mim-mongooseim-mysql -n mim --ignore-not-found=true || true
             kubectl delete pvc mim-mongooseim-mysql-data -n mim --ignore-not-found=true || true
+            kubectl delete pvc mim-mongooseim-mysql-pvc -n mim --ignore-not-found=true || true
             echo "⏳ Waiting for rollout..."
+            kubectl rollout status deployment/mim-mongooseim-postgresql -n mim --timeout=300s || true
             kubectl rollout status deployment/mim-mongooseim -n mim --timeout=300s
             echo "✅ Deployment complete!"
             echo "🐘 PostgreSQL pods (if running):"

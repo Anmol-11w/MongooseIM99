@@ -59,20 +59,58 @@ echo "$BAD_BOOTSTRAP_RESULT" | grep "It should fail"
 
 echo "Configuring auth for smoke test (no MySQL available)"
 MIM_CONF=/etc/mongooseim/mongooseim.toml
-# Remove rdbms auth
-sed -i '/^[[:space:]]*\[auth\.rdbms\]/d' "$MIM_CONF" || true
-# Remove auth.internal if exists to avoid duplicate
-sed -i '/^[[:space:]]*\[auth\.internal\]/d' "$MIM_CONF" || true
-# Add auth.internal after [auth] section
-sed -i '/^\[auth\]$/a\  [auth.internal]' "$MIM_CONF" || true
-# Remove entire rdbms outgoing pool section
-awk 'BEGIN{skip=0} /^\[outgoing_pools\.rdbms/{skip=1} skip && /^\[/ && !/^\[outgoing_pools\.rdbms/{skip=0} !skip{print}' "$MIM_CONF" > /tmp/mim_conf_tmp && mv /tmp/mim_conf_tmp "$MIM_CONF" || true
+# Remove auth tables that rely on unavailable external dependencies in smoke tests.
+awk '
+	BEGIN { skip = 0 }
+	{
+		if ($0 ~ /^[[:space:]]*\[auth\.(rdbms|jwt)\][[:space:]]*$/) {
+			skip = 1
+			next
+		}
+		if (skip && $0 ~ /^[[:space:]]*\[/ && $0 !~ /^[[:space:]]*\[auth\.(rdbms|jwt)\][[:space:]]*$/) {
+			skip = 0
+		}
+		if (!skip) {
+			print
+		}
+	}
+' "$MIM_CONF" > /tmp/mim_conf_tmp && mv /tmp/mim_conf_tmp "$MIM_CONF" || true
+
+# Remove auth.internal if exists to avoid duplicates before re-adding it.
+sed -i '/^[[:space:]]*\[auth\.internal\][[:space:]]*$/d' "$MIM_CONF" || true
+
+# Add auth.internal right after [auth] section.
+if ! grep -q '^[[:space:]]*\[auth\.internal\][[:space:]]*$' "$MIM_CONF"; then
+	sed -i '/^[[:space:]]*\[auth\][[:space:]]*$/a\[auth.internal]' "$MIM_CONF" || true
+fi
+
+# Remove entire RDBMS outgoing pool section.
+awk '
+	BEGIN { skip = 0 }
+	{
+		if ($0 ~ /^[[:space:]]*\[outgoing_pools\.rdbms(\.|\])/) {
+			skip = 1
+			next
+		}
+		if (skip && $0 ~ /^[[:space:]]*\[/ && $0 !~ /^[[:space:]]*\[outgoing_pools\.rdbms(\.|\])/) {
+			skip = 0
+		}
+		if (!skip) {
+			print
+		}
+	}
+' "$MIM_CONF" > /tmp/mim_conf_tmp && mv /tmp/mim_conf_tmp "$MIM_CONF" || true
 
 echo "Starting mongooseim via 'mongooseimctl start'"
 mongooseimctl start
 
 echo "Waiting for the port 5222 to accept TCP connections"
-./wait-for-it.sh -h localhost -p 5222 -t 60
+if ! ./wait-for-it.sh -h localhost -p 5222 -t 90; then
+	echo "MongooseIM did not open port 5222 in time"
+	mongooseimctl status || true
+	tail -n 200 /var/log/mongooseim/mongooseim.log 2>/dev/null || true
+	exit 1
+fi
 
 echo "Checking status via 'mongooseimctl status'"
 mongooseimctl status
