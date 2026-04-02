@@ -2,210 +2,328 @@ name: CI
 
 on:
   push:
-    branches: [ master ]
-  # Allows you to run this workflow manually from the Actions tab
+    branches: [ main, ci ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  # required for run_common_test.erl
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   KEEP_COVER_RUNNING: '1'
   SKIP_AUTO_COMPILE: 'true'
+
   # required for tools/gh-upload-to-s3.sh script
-  AWS_DEFAULT_REGION: "${{ secrets.AWS_DEFAULT_REGION }}"
-  AWS_ACCESS_KEY_ID: "${{ secrets.AWS_ACCESS_KEY_ID }}"
-  AWS_SECRET_ACCESS_KEY: "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
-  # required for tools/gh-report-failing-testcases-to-ga4.sh script
-  GA4_API_SECRET: "${{ secrets.GA4_API_SECRET }}"
-  GA4_MEASUREMENT_API: "${{ secrets.GA4_MEASUREMENT_API }}"
+  # AWS_DEFAULT_REGION: "${{ secrets.AWS_DEFAULT_REGION }}"
+  # AWS_ACCESS_KEY_ID: "${{ secrets.AWS_ACCESS_KEY_ID }}"
+  # AWS_SECRET_ACCESS_KEY: "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
 
 jobs:
+
+# =====================================================
+# SMALL TESTS 
+# =====================================================
   small_tests:
-    name: small_tests on OTP ${{matrix.otp}}
+    name: small_tests on OTP ${{ matrix.otp }}
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        ## the full list of supported (prebuilt) OTP versions for ubuntu-22.04 runners
-        ## can be found here:
-        ##     https://builds.hex.pm/builds/otp/ubuntu-22.04/builds.txt
         otp: [ '27.3.4.2', '28.0.2' ]
-    runs-on: ubuntu-22.04
+
     env:
       PRESET: 'small_tests'
+
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: erlef/setup-beam@v1.16.0
+
+      - uses: erlef/setup-beam@v1
         with:
           otp-version: ${{ matrix.otp }}
-      - uses: actions/cache@v3
+
+      - uses: actions/cache@v4
         with:
           path: ~/.cache/rebar3
           key: rebar3-${{ hashFiles('rebar.lock') }}
+
       - name: create certificates
         run: make certs
+
       - name: run test
         run: tools/test.sh -p $PRESET -s true -e true
+
       - name: prepare coverage report
         run: ./rebar3 codecov analyze --lcov --json false
-      - name: report coverage
-        uses: coverallsapp/github-action@v2
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          flag-name: small_tests on OTP ${{matrix.otp}}
-          path-to-lcov: ./lcov.info
-          parallel: true
-      - name: upload common test results on failure
-        if: ${{ failure() }}
-        run: tools/gh-upload-to-s3.sh _build/test/logs test_logs
 
+      - name: upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-otp-${{ matrix.otp }}
+          path: lcov.info
+          retention-days: 30
+
+
+# =====================================================
+# BIG TESTS (NON-BLOCKING )
+# =====================================================
   big_tests:
-    name: ${{matrix.preset}} on OTP ${{matrix.otp}}
+    name: ${{ matrix.preset }} on OTP ${{ matrix.otp }}
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+
     strategy:
       fail-fast: false
       matrix:
-        preset: [internal_mnesia, pgsql_mnesia, mysql_redis,
-                 ldap_mnesia, elasticsearch_and_cassandra_mnesia]
+        preset:
+          - internal_mnesia
+          - pgsql_mnesia
+          - mysql_redis
+          - ldap_mnesia
+          - elasticsearch_and_cassandra_mnesia
         otp: [ '28.0.2' ]
         include:
           - test-spec: "default.spec"
           - preset: elasticsearch_and_cassandra_mnesia
             test-spec: "mam.spec"
           - preset: ldap_mnesia
-            test-spec: "default.spec"
             otp: '27.3.4.2'
+            test-spec: "default.spec"
           - preset: pgsql_mnesia
-            test-spec: "default.spec"
             otp: '27.3.4.2'
-    runs-on: ubuntu-22.04
+            test-spec: "default.spec"
+
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/big-tests
-        with:
-          otp: ${{matrix.otp}}
-          preset: ${{matrix.preset}}
-          gh-token: ${{secrets.GITHUB_TOKEN}}
-          test-spec: ${{matrix.test-spec}}
-      - name: upload common test results on failure
-        if: ${{ failure() }}
-        run: tools/gh-upload-to-s3.sh big_tests/ct_report
-      - name: upload big_tests results to GA4
-        if: ${{ !cancelled() && github.ref_name == 'master' }}
-        run: tools/gh-report-failing-testcases-to-ga4.sh
 
+      - name: Run big tests (non-blocking)
+        uses: ./.github/actions/big-tests
+        continue-on-error: true
+        with:
+          otp: ${{ matrix.otp }}
+          preset: ${{ matrix.preset }}
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
+          test-spec: ${{ matrix.test-spec }}
+
+
+# =====================================================
+# DYNAMIC DOMAIN BIG TESTS (NON-BLOCKING)
+# =====================================================
   dynamic_domains_big_tests:
-    name: dynamic domains ${{matrix.preset}} on OTP ${{matrix.otp}}
+    name: dynamic domains ${{ matrix.preset }} on OTP ${{ matrix.otp }}
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+
     strategy:
       fail-fast: false
       matrix:
-        preset: [pgsql_mnesia, mysql_redis]
+        preset: [ pgsql_mnesia, mysql_redis ]
         otp: [ '28.0.2' ]
-        test-spec: ["dynamic_domains.spec"]
+        test-spec: [ "dynamic_domains.spec" ]
         include:
           - preset: pgsql_mnesia
             otp: '27.3.4.2'
             test-spec: "dynamic_domains.spec"
-    runs-on: ubuntu-22.04
+
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/big-tests
-        with:
-          otp: ${{matrix.otp}}
-          preset: ${{matrix.preset}}
-          gh-token: ${{secrets.GITHUB_TOKEN}}
-          test-spec: ${{matrix.test-spec}}
-      - name: upload common test results on failure
-        if: ${{ failure() }}
-        run: tools/gh-upload-to-s3.sh big_tests/ct_report
-      - name: upload big_tests results to GA4
-        if: ${{ !cancelled() && github.ref_name == 'master' }}
-        run: tools/gh-report-failing-testcases-to-ga4.sh
 
-  coveralls_webhook:
-    needs: [big_tests, small_tests, dynamic_domains_big_tests]
+      - name: Run dynamic big tests (non-blocking)
+        uses: ./.github/actions/big-tests
+        continue-on-error: true
+        with:
+          otp: ${{ matrix.otp }}
+          preset: ${{ matrix.preset }}
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
+          test-spec: ${{ matrix.test-spec }}
+
+
+# =====================================================
+# KUBERNETES BACKEND SMOKE TESTS (NON-BLOCKING)
+# =====================================================
+  kubernetes_backends_smoke:
+    name: kubernetes smoke ${{ matrix.preset }}
     runs-on: ubuntu-22.04
-    steps:
-      - name: Finish coveralls parallel build
-        uses: coverallsapp/github-action@v2
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          parallel-finished: true
+    continue-on-error: true
 
-  dialyzer:
-    name: dialyzer on OTP ${{matrix.otp}}
     strategy:
       fail-fast: false
       matrix:
-        otp: [ '27.3.4.2' ]
-    runs-on: ubuntu-22.04
+        preset:
+          - internal_mnesia
+          - pgsql_mnesia
+          - mysql_redis
+          - ldap_mnesia
+          - elasticsearch_and_cassandra_mnesia
+
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: erlef/setup-beam@v1.16.0
+
+      - name: Set up Kubernetes-in-Docker (kind)
+        uses: helm/kind-action@v1
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
         with:
-          otp-version: ${{matrix.otp}}
+          version: 'latest'
+
+      - name: Run backend smoke profile in Kubernetes
+        run: bash tools/k8s-backends-smoke.sh "${{ matrix.preset }}"
+
+      - name: Dump Kubernetes state on failure
+        if: failure()
+        run: |
+          kubectl get ns || true
+          kubectl get pods -A -o wide || true
+          kubectl get svc -A || true
+          kubectl get events -A --sort-by=.lastTimestamp | tail -n 200 || true
+
+
+# =====================================================
+# STATIC CHECKS (BLOCKING)
+# =====================================================
+  dialyzer:
+    name: dialyzer on OTP ${{ matrix.otp }}
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        otp: [ '27.3.4.2' ]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
       - run: tools/test.sh -p dialyzer_only
-      - run: tools/test.sh -p dialyzer_big_tests
+
 
   xref:
-    name: xref on OTP ${{matrix.otp}}
+    name: xref on OTP ${{ matrix.otp }}
+    runs-on: ubuntu-22.04
     strategy:
-      fail-fast: false
       matrix:
         otp: [ '27.3.4.2' ]
-    runs-on: ubuntu-22.04
+
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
         with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: erlef/setup-beam@v1.16.0
-        with:
-          otp-version: ${{matrix.otp}}
+          otp-version: ${{ matrix.otp }}
       - run: tools/test.sh -p xref_only
 
+
   edoc:
-    name: edoc on OTP ${{matrix.otp}}
+    name: edoc on OTP ${{ matrix.otp }}
+    runs-on: ubuntu-22.04
     strategy:
-      fail-fast: false
       matrix:
         otp: [ '27.3.4.2' ]
-    runs-on: ubuntu-22.04
+
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+      - run: tools/test.sh -p edoc_only
+
+
+# =====================================================
+# DOCKER IMAGE BUILD (BLOCKING)
+# =====================================================
+  docker_image:
+    name: docker image build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: erlef/setup-beam@v1.16.0
-        with:
-          otp-version: ${{matrix.otp}}
-      - run: tools/test.sh -p edoc_only
 
+      - name: Prepare image tags
+        id: image
+        run: |
+          OWNER_LC=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          REPO_LC=$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/${OWNER_LC}/${REPO_LC}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          BRANCH_TAG=$(echo "${GITHUB_REF_NAME}" | tr '/' '-')
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${IMAGE}:sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "run_tag=${IMAGE}:run-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "branch_tag=${IMAGE}:${BRANCH_TAG}" >> "$GITHUB_OUTPUT"
+          # push :latest only when building the main branch
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            echo "latest_tag=${IMAGE}:latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "latest_tag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build app Docker image
+        run: docker build --tag "${{ steps.image.outputs.sha_tag }}" .
+
+      - name: Smoke test Docker image
+        run: docker run --rm --entrypoint /usr/lib/mongooseim/bin/mongooseim "${{ steps.image.outputs.sha_tag }}" version --simple
+
+      - name: Tag branch / run-number / latest images
+        run: |
+          docker tag "${{ steps.image.outputs.sha_tag }}" "${{ steps.image.outputs.branch_tag }}"
+          docker tag "${{ steps.image.outputs.sha_tag }}" "${{ steps.image.outputs.run_tag }}"
+          if [[ -n "${{ steps.image.outputs.latest_tag }}" ]]; then
+            docker tag "${{ steps.image.outputs.sha_tag }}" "${{ steps.image.outputs.latest_tag }}"
+          fi
+
+      - name: Push image to GHCR
+        run: |
+          docker push "${{ steps.image.outputs.sha_tag }}"
+          docker push "${{ steps.image.outputs.branch_tag }}"
+          docker push "${{ steps.image.outputs.run_tag }}"
+          if [[ -n "${{ steps.image.outputs.latest_tag }}" ]]; then
+            docker push "${{ steps.image.outputs.latest_tag }}"
+          fi
+
+
+# =====================================================
+# PACKAGE BUILD (BLOCKING)
+# =====================================================
   pkg:
-    name: ${{matrix.pkg}} package
-    strategy:
-      fail-fast: false
-      matrix:
-        pkg: [ubuntu-jammy]
+    name: ${{ matrix.pkg }} package
     runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        pkg: [ ubuntu-jammy ]
+
     env:
       pkg_OTP_VERSION: "28.0.2"
-      pkg_PLATFORM: ${{matrix.pkg}}
+      pkg_PLATFORM: ${{ matrix.pkg }}
       GPG_PUBLIC_KEY: ${{ secrets.GPG_PUBLIC_KEY }}
       GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
       GPG_PASS: ${{ secrets.GPG_PASS }}
+
     steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+      - uses: actions/checkout@v4
       - run: tools/test.sh -p pkg

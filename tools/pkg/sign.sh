@@ -21,26 +21,40 @@ if [[ "$PACKAGE_NAME" == *.deb ]]; then
     gpg --import public.key
     rm -f public.key
 
-    debsigs --gpgopts "--no-tty --pinentry-mode loopback --passphrase $GPG_PASS" \
+    GPG_OPTS="--no-tty --pinentry-mode loopback"
+    if [ -n "$GPG_PASS" ]; then
+        GPG_OPTS="$GPG_OPTS --passphrase $GPG_PASS"
+    fi
+
+    debsigs --gpgopts "$GPG_OPTS" \
             --sign=origin -k="$GPG_KEY_ID" "$PACKAGE_NAME"
     echo "DEB package signed successfully: $PACKAGE_NAME"
 
     debsigs --verify "$PACKAGE_NAME"
     echo "DEB package verified successfully: $PACKAGE_NAME"
+
 elif [[ "$PACKAGE_NAME" == *.rpm ]]; then
     rpm --import public.key
     rm -f public.key
 
+    # Build rpmmacros with optional passphrase
+    GPG_PASS_LINE=""
+    GPG_PASSPHRASE_FLAG=""
+    if [ -n "$GPG_PASS" ]; then
+        GPG_PASS_LINE="%_gpg_pass $GPG_PASS"
+        GPG_PASSPHRASE_FLAG='--passphrase "%{_gpg_pass}"'
+    fi
+
     cat > ~/.rpmmacros <<EOF
-          %__gpg $(type -p gpg)
-          %_gpg_path $HOME/.gnupg
-          %_gpg_name $GPG_KEY_EMAIL
-          %_signature gpg
-          %_gpg_pass $GPG_PASS
-          %__gpg_sign_cmd %{__gpg} gpg --no-verbose --no-armor --batch \
-            --pinentry-mode loopback --passphrase "%{_gpg_pass}" \
-            --no-secmem-warning -u "%{_gpg_name}" \
-            -sbo %{__signature_filename} %{__plaintext_filename}
+%__gpg $(type -p gpg)
+%_gpg_path $HOME/.gnupg
+%_gpg_name $GPG_KEY_EMAIL
+%_signature gpg
+$GPG_PASS_LINE
+%__gpg_sign_cmd %{__gpg} gpg --no-verbose --no-armor --batch \
+  --pinentry-mode loopback $GPG_PASSPHRASE_FLAG \
+  --no-secmem-warning -u "%{_gpg_name}" \
+  -sbo %{__signature_filename} %{__plaintext_filename}
 EOF
 
     rpm --addsign "$PACKAGE_NAME"
@@ -50,6 +64,7 @@ EOF
     echo "RPM package verified successfully: $PACKAGE_NAME"
 
     rm -f ~/.rpmmacros
+
 else
     echo "No packages found to sign"
     exit 1

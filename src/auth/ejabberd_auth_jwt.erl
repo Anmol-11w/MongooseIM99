@@ -109,19 +109,22 @@ check_password(HostType, LUser, LServer, Password) ->
         {ok, TokenData} ->
             UserKey = mongoose_config:get_opt([{auth,HostType}, jwt, username_key]),
             case maps:find(UserKey, TokenData) of
-                {ok, LUser} ->
-                    %% Login username matches $token_user_key in TokenData
-                    ?LOG_INFO(#{what => jwt_success_auth,
-                                text => <<"Successfully authenticated with JWT">>,
-                                user => LUser, server => LServer,
-                                token => TokenData}),
-                    true;
-                {ok, ExpectedUser} ->
-                    ?LOG_WARNING(#{what => wrong_jwt_user,
-                                   text => <<"JWT contains wrond user">>,
-                                   expected_user => ExpectedUser,
-                                   user => LUser, server => LServer}),
-                    false;
+                {ok, ClaimUser} ->
+                    case jid:str_tolower(ClaimUser) of
+                        LUser ->
+                            %% Login username matches $token_user_key in TokenData
+                            ?LOG_INFO(#{what => jwt_success_auth,
+                                        text => <<"Successfully authenticated with JWT">>,
+                                        user => LUser, server => LServer,
+                                        token => TokenData}),
+                            true;
+                        _ ->
+                            ?LOG_WARNING(#{what => wrong_jwt_user,
+                                           text => <<"JWT contains wrong user">>,
+                                           expected_user => ClaimUser,
+                                           user => LUser, server => LServer}),
+                            false
+                    end;
                 error ->
                     ?LOG_WARNING(#{what => missing_jwt_key,
                                    text => <<"Missing key {user_key} in JWT data">>,
