@@ -1,0 +1,44 @@
+# Prerequisites: generate SSL certs before first run:
+#   make -C tools/ssl/
+#
+# Then start with:
+#   docker compose up --build
+
+services:
+  postgres:
+    image: postgres:16
+    user: root
+    entrypoint: /docker-init/entrypoint.sh
+    command:
+      - docker-entrypoint.sh
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/var/ssl/postgres/cert.pem
+      - -c
+      - ssl_key_file=/var/ssl/postgres/key.pem
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - ./docker/postgres/entrypoint.sh:/docker-init/entrypoint.sh:ro
+      - ./docker/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./docker/postgres/init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+      - ./priv/pg.sql:/docker-init/pg.sql:ro
+      - ./tools/ssl/mongooseim/cert.pem:/tmp/ssl/cert.pem:ro
+      - ./tools/ssl/mongooseim/key.pem:/tmp/ssl/key.pem:ro
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "psql -U mongooseim -d mongooseim -c 'SELECT 1' > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  postgres_data:
