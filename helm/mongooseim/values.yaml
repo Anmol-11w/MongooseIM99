@@ -1,0 +1,121 @@
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/anmol-11w/mongooseim99
+  tag: "latest"
+  pullPolicy: Always
+
+postgresqlBackend:
+  enabled: true
+  host: "mim-mongooseim-postgresql"
+  port: 5432
+  database: "mongooseim"
+  username: "mongooseim"
+  password: "mongooseim"
+
+postgresql:
+  enabled: true
+  image: postgres:16
+  imagePullPolicy: IfNotPresent
+  rootPassword: "secret"
+  database: "mongooseim"
+  username: "mongooseim"
+  password: "mongooseim"
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "512Mi"
+
+imagePullSecrets:
+  - name: ghcr-secret
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: false
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: NodePort
+  ports:
+    xmppClient:
+      port: 5222
+      nodePort: 30222
+      protocol: TCP
+    xmppServer:
+      port: 5269
+      nodePort: 30269
+      protocol: TCP
+    bosh:
+      port: 5280
+      nodePort: 30280
+      protocol: TCP
+    admin:
+      port: 8888
+      nodePort: 30888
+      protocol: TCP
+    metrics:
+      port: 9091
+      nodePort: 30091
+      protocol: TCP
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "256Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"
+
+livenessProbe:
+  tcpSocket:
+    port: xmpp-client
+  initialDelaySeconds: 120
+  periodSeconds: 15
+
+readinessProbe:
+  tcpSocket:
+    port: xmpp-client
+  initialDelaySeconds: 60
+  periodSeconds: 10
+
+env: []
+envFrom: []
+
+extraContainers:
+  - name: redis
+    image: redis:7
+    imagePullPolicy: IfNotPresent
+    ports:
+      - name: redis
+        containerPort: 6379
+        protocol: TCP
+
+extraVolumes: []
+extraVolumeMounts: []
+
+postgresqlPersistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

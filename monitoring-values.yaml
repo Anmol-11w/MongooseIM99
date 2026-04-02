@@ -1,0 +1,15 @@
+grafana:
+  enabled: true
+  service:
+    type: NodePort
+    nodePort: 32000
+
+promtail:
+  enabled: true
+
+loki:
+  persistence:
+    enabled: true
+    size: 5Gi
+  image:
+    tag: 2.9.3

@@ -1,0 +1,17 @@
+{{- if .Values.postgresqlPersistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mongooseim.fullname" . }}-postgresql-data
+  labels:
+    {{- include "mongooseim.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.postgresqlPersistence.size }}
+  {{- if .Values.postgresqlPersistence.storageClass }}
+  storageClassName: {{ .Values.postgresqlPersistence.storageClass }}
+  {{- end }}
+{{- end }}

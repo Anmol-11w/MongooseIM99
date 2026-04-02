@@ -1,0 +1,134 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mongooseim.fullname" . }}
+  labels:
+    {{- include "mongooseim.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "mongooseim.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mongooseim.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "mongooseim.serviceAccountName" . }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: mongooseim
+          image: {{ include "mongooseim.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.postgresqlBackend.enabled }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              set -e
+              CONF="/tmp/mongooseim.toml"
+              cp /etc/mongooseim/mongooseim.toml "$CONF"
+              export EJABBERD_CONFIG_PATH="$CONF"
+              echo "Using EJABBERD_CONFIG_PATH=$EJABBERD_CONFIG_PATH"
+              for i in $(seq 1 120); do
+                (echo > /dev/tcp/{{ .Values.postgresqlBackend.host }}/{{ .Values.postgresqlBackend.port }}) >/dev/null 2>&1 && break
+                sleep 1
+              done
+              sed -i 's/^\[auth\.rdbms\]/[auth.rdbms]/' "$CONF" || true
+              if ! grep -q '^\[auth.rdbms\]' "$CONF"; then
+                printf '\n[auth.rdbms]\n' >> "$CONF"
+              fi
+              sed -i '/^[[:space:]]*\[auth\.internal\]/d' "$CONF"
+              sed -i '/^\[internal_databases\.mnesia\]/d' "$CONF"
+
+              sed -i '/^[[:space:]]*outgoing_pools\.rdbms\.default\./d' "$CONF"
+
+              awk '
+                BEGIN { skip = 0 }
+                /^\[outgoing_pools\.rdbms\.default(\.|\])/ { skip = 1 }
+                skip && /^\[/ && $0 !~ /^\[outgoing_pools\.rdbms\.default(\.|\])/ { skip = 0 }
+                !skip { print }
+              ' "$CONF" > "${CONF}.new"
+              mv "${CONF}.new" "$CONF"
+
+              printf '\n[outgoing_pools.rdbms.default]\n  scope = "global"\n  workers = 5\n\n  [outgoing_pools.rdbms.default.connection]\n    driver = "pgsql"\n    host = "{{ .Values.postgresqlBackend.host }}"\n    port = {{ .Values.postgresqlBackend.port }}\n    database = "{{ .Values.postgresqlBackend.database }}"\n    username = "{{ .Values.postgresqlBackend.username }}"\n    password = "{{ .Values.postgresqlBackend.password }}"\n' >> "$CONF"
+              echo "Configured outgoing_pools in $CONF:"
+              grep -n 'outgoing_pools\.rdbms\.default\|driver = "pgsql"\|host = \|port = \|database = \|username = ' "$CONF" || true
+              exec /usr/lib/mongooseim/bin/mongooseim foreground
+          {{- end }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: xmpp-client
+              containerPort: 5222
+              protocol: TCP
+            - name: xmpp-server
+              containerPort: 5269
+              protocol: TCP
+            - name: bosh
+              containerPort: 5280
+              protocol: TCP
+            - name: admin
+              containerPort: 8888
+              protocol: TCP
+          {{- with .Values.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.extraContainers }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

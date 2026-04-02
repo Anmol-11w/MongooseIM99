@@ -1,0 +1,29 @@
+MongooseIM has been deployed!
+
+Release name : {{ .Release.Name }}
+Namespace    : {{ .Release.Namespace }}
+Image        : {{ include "mongooseim.image" . }}
+
+XMPP client port (5222) is exposed via the "{{ include "mongooseim.fullname" . }}" Service
+(type: {{ .Values.service.type }}).
+
+{{- if eq .Values.service.type "ClusterIP" }}
+
+To reach MongooseIM from inside the cluster:
+  mongooseim.{{ .Release.Namespace }}.svc.cluster.local:5222
+
+To forward the port locally for testing:
+  kubectl port-forward svc/{{ include "mongooseim.fullname" . }} 5222:5222 -n {{ .Release.Namespace }}
+
+{{- else if eq .Values.service.type "NodePort" }}
+
+Get the NodePort assigned to the XMPP client port:
+  kubectl get svc {{ include "mongooseim.fullname" . }} -n {{ .Release.Namespace }} \
+    -o jsonpath='{.spec.ports[?(@.name=="xmpp-client")].nodePort}'
+
+{{- else if eq .Values.service.type "LoadBalancer" }}
+
+Wait for the external IP to be assigned:
+  kubectl get svc {{ include "mongooseim.fullname" . }} -n {{ .Release.Namespace }} --watch
+
+{{- end }}

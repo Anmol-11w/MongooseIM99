@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mongooseim.fullname" . }}
+  labels:
+    {{- include "mongooseim.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "mongooseim.selectorLabels" . | nindent 4 }}
+  ports:
+    {{- range $name, $port := .Values.service.ports }}
+    - name: {{ $name | kebabcase }}
+      port: {{ $port.port }}
+      targetPort: {{ $name | kebabcase }}
+      protocol: {{ $port.protocol | default "TCP" }}
+      {{- if $port.nodePort }}
+      nodePort: {{ $port.nodePort }}
+      {{- end }}
+    {{- end }}

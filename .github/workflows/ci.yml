@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, ci ]
+    branches: [ master, main ]
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
   workflow_dispatch:
 
 concurrency:
@@ -24,7 +24,7 @@ env:
 jobs:
 
 # =====================================================
-# SMALL TESTS 
+# SMALL TESTS
 # =====================================================
   small_tests:
     name: small_tests on OTP ${{ matrix.otp }}
@@ -70,7 +70,7 @@ jobs:
 
 
 # =====================================================
-# BIG TESTS (NON-BLOCKING )
+# BIG TESTS (NON-BLOCKING)
 # =====================================================
   big_tests:
     name: ${{ matrix.preset }} on OTP ${{ matrix.otp }}
@@ -83,7 +83,6 @@ jobs:
         preset:
           - internal_mnesia
           - pgsql_mnesia
-          - mysql_redis
           - ldap_mnesia
           - elasticsearch_and_cassandra_mnesia
         otp: [ '28.0.2' ]
@@ -125,7 +124,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [ pgsql_mnesia, mysql_redis ]
+        preset: [ pgsql_mnesia ]
         otp: [ '28.0.2' ]
         test-spec: [ "dynamic_domains.spec" ]
         include:
@@ -163,7 +162,6 @@ jobs:
         preset:
           - internal_mnesia
           - pgsql_mnesia
-          - mysql_redis
           - ldap_mnesia
           - elasticsearch_and_cassandra_mnesia
 
@@ -247,6 +245,8 @@ jobs:
   docker_image:
     name: docker image build
     runs-on: ubuntu-22.04
+    # ✅ Wait for all blocking tests to pass before building & pushing image
+    needs: [ small_tests, dialyzer, xref, edoc ]
     permissions:
       contents: read
       packages: write
@@ -269,8 +269,8 @@ jobs:
           echo "sha_tag=${IMAGE}:sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "run_tag=${IMAGE}:run-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "branch_tag=${IMAGE}:${BRANCH_TAG}" >> "$GITHUB_OUTPUT"
-          # push :latest only when building the main branch
-          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+          # push :latest only when building the master branch
+          if [[ "${GITHUB_REF_NAME}" == "master" ]]; then
             echo "latest_tag=${IMAGE}:latest" >> "$GITHUB_OUTPUT"
           else
             echo "latest_tag=" >> "$GITHUB_OUTPUT"
@@ -327,3 +327,84 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: tools/test.sh -p pkg
+
+
+# =====================================================
+# AUTO DEPLOY
+# =====================================================
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-22.04
+    needs: docker_image
+    if: github.ref_name == 'master'
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          SHORT_SHA: ${{ github.sha }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: SHORT_SHA
+          script: |
+            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+            cd /opt/MongooseIM99
+            git pull origin master
+            SHORT_SHA="${SHORT_SHA:0:7}"
+            echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
+            kubectl set image deployment/mim-mongooseim mongooseim=ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA} -n mim
+            echo "🧹 Removing legacy MySQL resources (if present)..."
+            kubectl delete deployment mim-mongooseim-mysql -n mim --ignore-not-found=true || true
+            kubectl delete service mim-mongooseim-mysql -n mim --ignore-not-found=true || true
+            kubectl delete pvc mim-mongooseim-mysql-data -n mim --ignore-not-found=true || true
+            echo "⏳ Waiting for rollout..."
+            kubectl rollout status deployment/mim-mongooseim -n mim --timeout=300s
+            echo "✅ Deployment complete!"
+            echo "🐘 PostgreSQL pods (if running):"
+            kubectl get pods -n mim | grep -Ei 'postgres|pgsql' || true
+            echo "📦 Running pods:"
+            kubectl get pods -n mim
+            echo "🔍 Image verification:"
+            kubectl get pods -n mim -o jsonpath='{range .items[*]}{.metadata.name}{" -> "}{.status.containerStatuses[0].imageID}{"\n"}{end}'
+
+# =====================================================
+# MONITORING DEPLOY
+# =====================================================
+  deploy_monitoring:
+    name: Deploy monitoring stack
+    runs-on: ubuntu-22.04
+    needs: docker_image
+    if: github.ref_name == 'master'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if monitoring changed
+        id: check
+        run: |
+          if git diff HEAD~1 HEAD -- monitoring-values.yaml | grep -q .; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy monitoring via SSH
+        if: steps.check.outputs.changed == 'true'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+            cd /opt/MongooseIM99
+            helm repo add grafana https://grafana.github.io/helm-charts || true
+            helm repo update
+            helm upgrade --install loki grafana/loki-stack \
+              --namespace monitoring \
+              --create-namespace \
+              -f monitoring-values.yaml

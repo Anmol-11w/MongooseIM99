@@ -148,3 +148,6 @@ doc/graphql-api/*.html
 coverage-full/
 lcov-*.info
 lcov-full.info
+
+cert.pem
+key.pem
