@@ -52,7 +52,7 @@ spec:
               # =========================================================
               # STEP 1: Patch XMPP host if provided
               # =========================================================
-              if [[ -n "${MIM_XMPP_HOST:-}" ]]; do
+              if [[ -n "${MIM_XMPP_HOST:-}" ]]; then
                 echo "🌐 Patching XMPP host to: $MIM_XMPP_HOST"
                 awk -v xmpp_host="$MIM_XMPP_HOST" '
                   BEGIN { in_general = 0 }

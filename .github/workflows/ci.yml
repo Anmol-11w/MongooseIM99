@@ -400,12 +400,16 @@ jobs:
 
             # ✅ Deploy new image via Helm (only image changes, secrets stay as env vars)
             echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
-            helm upgrade --install mim-mongooseim ./helm/mongooseim \
+            helm upgrade --install mim ./helm/mongooseim \
               --namespace "$MIM_NS" \
               --reuse-values \
               --set image.repository="ghcr.io/anmol-11w/mongooseim99" \
               --set image.tag="sha-${SHORT_SHA}" \
               --set image.pullPolicy="Always"
+
+            # Force restart so new deployment.yaml startup script runs in pods
+            echo "🔄 Restarting pods to apply new startup script..."
+            kubectl rollout restart deployment/${APP_DEPLOY} -n "$MIM_NS"
 
             echo "⏳ Waiting for rollout to complete..."
             kubectl rollout status deployment/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s
@@ -464,6 +468,11 @@ jobs:
             echo "🔍 Verifying DB config has no hardcoded values..."
             kubectl exec deployment/${APP_DEPLOY} -n "$MIM_NS" -c mongooseim -- sh -ec '
               CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
+
+              if [ ! -f "$CONF" ]; then
+                echo "❌ Runtime config not found at $CONF"
+                exit 1
+              fi
 
               echo "📄 DB config in runtime config:"
               grep -E "driver|host|port|database|username" "$CONF" | grep -v "^#" || true
