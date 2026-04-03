@@ -44,11 +44,16 @@ spec:
               set -e
               CONF_SOURCE="/etc/mongooseim/mongooseim.toml"
               CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
+              mkdir -p /var/lib/mongooseim
               cp "$CONF_SOURCE" "$CONF"
               export EJABBERD_CONFIG_PATH="$CONF"
               echo "Using EJABBERD_CONFIG_PATH=$EJABBERD_CONFIG_PATH"
 
-              if [[ -n "${MIM_XMPP_HOST:-}" ]]; then
+              # =========================================================
+              # STEP 1: Patch XMPP host if provided
+              # =========================================================
+              if [[ -n "${MIM_XMPP_HOST:-}" ]]; do
+                echo "🌐 Patching XMPP host to: $MIM_XMPP_HOST"
                 awk -v xmpp_host="$MIM_XMPP_HOST" '
                   BEGIN { in_general = 0 }
                   /^\[general\]/ { in_general = 1; print; next }
@@ -64,9 +69,13 @@ spec:
                   { print }
                 ' "$CONF" > "${CONF}.new"
                 mv "${CONF}.new" "$CONF"
+                echo "✅ XMPP host patched"
               fi
 
-              # Enforce JWT-only authentication regardless of base template values.
+              # =========================================================
+              # STEP 2: Enforce JWT-only auth methods + sasl_mechanisms
+              # =========================================================
+              echo "🔐 Enforcing JWT-only authentication..."
               awk '
                 BEGIN { in_auth = 0; methods_seen = 0; sasl_seen = 0 }
                 /^\[auth\]/ {
@@ -100,57 +109,50 @@ spec:
                 }
               ' "$CONF" > "${CONF}.new"
               mv "${CONF}.new" "$CONF"
+              echo "✅ JWT-only auth methods enforced"
 
-              {{- if .Values.postgresqlBackend.enabled }}
-              PG_HOST="${MIM_DB_HOST:-{{ .Values.postgresqlBackend.host }}}"
-              PG_PORT="${MIM_DB_PORT:-{{ .Values.postgresqlBackend.port }}}"
-              PG_DATABASE="${MIM_DB_NAME:-{{ .Values.postgresqlBackend.database }}}"
-              PG_USERNAME="${MIM_DB_USER:-{{ .Values.postgresqlBackend.username }}}"
-              PG_PASSWORD="${MIM_DB_PASSWORD:-{{ .Values.postgresqlBackend.password }}}"
-
-              for i in $(seq 1 120); do
-                (echo > /dev/tcp/${PG_HOST}/${PG_PORT}) >/dev/null 2>&1 && break
-                sleep 1
-              done
-              sed -i '/^[[:space:]]*outgoing_pools\.rdbms\.default\./d' "$CONF"
-
+              # =========================================================
+              # STEP 3: Remove any existing [auth.internal] or [auth.rdbms]
+              #         so password login is completely blocked
+              # =========================================================
+              echo "🚫 Removing password-based auth backends..."
               awk '
                 BEGIN { skip = 0 }
-                /^\[outgoing_pools\.rdbms\.default(\.|\])/ { skip = 1 }
-                skip && /^\[/ && $0 !~ /^\[outgoing_pools\.rdbms\.default(\.|\])/ { skip = 0 }
+                /^\[auth\.(internal|rdbms|ldap|external)\]/ { skip = 1; next }
+                skip && /^\[/ && $0 !~ /^\[auth\.(internal|rdbms|ldap|external)\]/ { skip = 0 }
+                !skip { print }
+              ' "$CONF" > "${CONF}.new"
+              mv "${CONF}.new" "$CONF"
+              echo "✅ Password-based auth backends removed"
+
+              # =========================================================
+              # STEP 4: Inject [auth.jwt] section with secret from env var
+              # =========================================================
+              if [[ -z "${MIM_JWT_PUBLIC_KEY:-}" ]]; then
+                echo "❌ FATAL: MIM_JWT_PUBLIC_KEY env var is not set!"
+                echo "   Users will not be able to login. Aborting startup."
+                exit 1
+              fi
+
+              echo "🔑 Injecting JWT secret into config..."
+
+              # Remove any existing [auth.jwt] section first
+              awk '
+                BEGIN { skip = 0 }
+                /^\[auth\.jwt\]/ { skip = 1; next }
+                skip && /^\[/ && $0 !~ /^\[auth\.jwt\]/ { skip = 0 }
                 !skip { print }
               ' "$CONF" > "${CONF}.new"
               mv "${CONF}.new" "$CONF"
 
-              printf '\n[outgoing_pools.rdbms.default]\n  scope = "global"\n  workers = 5\n\n  [outgoing_pools.rdbms.default.connection]\n    driver = "pgsql"\n    host = "%s"\n    port = %s\n    database = "%s"\n    username = "%s"\n    password = "%s"\n' "$PG_HOST" "$PG_PORT" "$PG_DATABASE" "$PG_USERNAME" "$PG_PASSWORD" >> "$CONF"
-              {{- end }}
-              {{- if .Values.redisBackend.enabled }}
-              REDIS_HOST="${MIM_REDIS_HOST:-{{ .Values.redisBackend.host }}}"
-              REDIS_PORT="${MIM_REDIS_PORT:-{{ .Values.redisBackend.port }}}"
-              REDIS_DATABASE="${MIM_REDIS_DATABASE:-{{ .Values.redisBackend.database }}}"
+              # Append fresh [auth.jwt] section
+              printf '\n[auth.jwt]\n  secret.value = "%s"\n  token_user_key = "sub"\n' \
+                "$MIM_JWT_PUBLIC_KEY" >> "$CONF"
+              echo "✅ JWT secret injected"
 
-              for i in $(seq 1 120); do
-                (echo > /dev/tcp/${REDIS_HOST}/${REDIS_PORT}) >/dev/null 2>&1 && break
-                sleep 1
-              done
-
-              awk '
-                BEGIN { skip = 0 }
-                /^\[outgoing_pools\.redis\.global_distrib(\.|\])/ { skip = 1 }
-                skip && /^\[/ && $0 !~ /^\[outgoing_pools\.redis\.global_distrib(\.|\])/ { skip = 0 }
-                !skip { print }
-              ' "$CONF" > "${CONF}.new"
-              mv "${CONF}.new" "$CONF"
-
-              printf '\n[outgoing_pools.redis.global_distrib]\n  scope = "global"\n  workers = 10\n\n  [outgoing_pools.redis.global_distrib.connection]\n    host = "%s"\n    port = %s\n    database = %s\n' "$REDIS_HOST" "$REDIS_PORT" "$REDIS_DATABASE" >> "$CONF"
-              {{- if .Values.redisBackend.username }}
-              printf '    username = "{{ .Values.redisBackend.username }}"\n' >> "$CONF"
-              {{- end }}
-              {{- if .Values.redisBackend.password }}
-              printf '    password = "{{ .Values.redisBackend.password }}"\n' >> "$CONF"
-              {{- end }}
-              {{- end }}
+              # If a file path override is also provided, use that instead
               if [[ -n "${MIM_JWT_PUBLIC_KEY_PATH:-}" ]]; then
+                echo "🔑 JWT key path override detected: $MIM_JWT_PUBLIC_KEY_PATH"
                 awk -v jwt_path="$MIM_JWT_PUBLIC_KEY_PATH" '
                   BEGIN { in_jwt = 0 }
                   /^\[auth\.jwt\]/ { in_jwt = 1; print; next }
@@ -160,7 +162,7 @@ spec:
                     print
                     next
                   }
-                  in_jwt && /^[[:space:]]*secret\.file[[:space:]]*=.*/ {
+                  in_jwt && /^[[:space:]]*secret\.(value|file)[[:space:]]*=.*/ {
                     printf "  secret.file = \"%s\"\n", jwt_path
                     next
                   }
@@ -172,9 +174,109 @@ spec:
                   }
                 ' "$CONF" > "${CONF}.new"
                 mv "${CONF}.new" "$CONF"
+                echo "✅ JWT key path applied"
               fi
-              echo "Configured outgoing_pools in $CONF:"
-              grep -n 'outgoing_pools\.rdbms\.default\|outgoing_pools\.redis\.global_distrib\|driver = "pgsql"\|host = \|port = \|database = \|username = ' "$CONF" || true
+
+              {{- if .Values.postgresqlBackend.enabled }}
+              # =========================================================
+              # STEP 5: Wait for PostgreSQL and inject DB config
+              # =========================================================
+              PG_HOST="${MIM_DB_HOST:-{{ .Values.postgresqlBackend.host }}}"
+              PG_PORT="${MIM_DB_PORT:-{{ .Values.postgresqlBackend.port }}}"
+              PG_DATABASE="${MIM_DB_NAME:-{{ .Values.postgresqlBackend.database }}}"
+              PG_USERNAME="${MIM_DB_USER:-{{ .Values.postgresqlBackend.username }}}"
+              PG_PASSWORD="${MIM_DB_PASSWORD:-{{ .Values.postgresqlBackend.password }}}"
+
+              echo "🐘 Waiting for PostgreSQL at $PG_HOST:$PG_PORT..."
+              for i in $(seq 1 120); do
+                (echo > /dev/tcp/${PG_HOST}/${PG_PORT}) >/dev/null 2>&1 && break
+                echo "  waiting... ($i/120)"
+                sleep 1
+              done
+              echo "✅ PostgreSQL is reachable"
+
+              # Remove existing rdbms pool config
+              awk '
+                BEGIN { skip = 0 }
+                /^\[outgoing_pools\.rdbms\.default(\.|\])/ { skip = 1 }
+                skip && /^\[/ && $0 !~ /^\[outgoing_pools\.rdbms\.default(\.|\])/ { skip = 0 }
+                !skip { print }
+              ' "$CONF" > "${CONF}.new"
+              mv "${CONF}.new" "$CONF"
+
+              # Append correct DB config from env vars / secrets
+              printf '\n[outgoing_pools.rdbms.default]\n  scope = "global"\n  workers = 5\n\n  [outgoing_pools.rdbms.default.connection]\n    driver = "pgsql"\n    host = "%s"\n    port = %s\n    database = "%s"\n    username = "%s"\n    password = "%s"\n' \
+                "$PG_HOST" "$PG_PORT" "$PG_DATABASE" "$PG_USERNAME" "$PG_PASSWORD" >> "$CONF"
+              echo "✅ PostgreSQL pool config injected"
+              {{- end }}
+
+              {{- if .Values.redisBackend.enabled }}
+              # =========================================================
+              # STEP 6: Wait for Redis and inject Redis config
+              # =========================================================
+              REDIS_HOST="${MIM_REDIS_HOST:-{{ .Values.redisBackend.host }}}"
+              REDIS_PORT="${MIM_REDIS_PORT:-{{ .Values.redisBackend.port }}}"
+              REDIS_DATABASE="${MIM_REDIS_DATABASE:-{{ .Values.redisBackend.database }}}"
+
+              echo "🔴 Waiting for Redis at $REDIS_HOST:$REDIS_PORT..."
+              for i in $(seq 1 120); do
+                (echo > /dev/tcp/${REDIS_HOST}/${REDIS_PORT}) >/dev/null 2>&1 && break
+                echo "  waiting... ($i/120)"
+                sleep 1
+              done
+              echo "✅ Redis is reachable"
+
+              # Remove existing redis pool config
+              awk '
+                BEGIN { skip = 0 }
+                /^\[outgoing_pools\.redis\.global_distrib(\.|\])/ { skip = 1 }
+                skip && /^\[/ && $0 !~ /^\[outgoing_pools\.redis\.global_distrib(\.|\])/ { skip = 0 }
+                !skip { print }
+              ' "$CONF" > "${CONF}.new"
+              mv "${CONF}.new" "$CONF"
+
+              # Append Redis config
+              printf '\n[outgoing_pools.redis.global_distrib]\n  scope = "global"\n  workers = 10\n\n  [outgoing_pools.redis.global_distrib.connection]\n    host = "%s"\n    port = %s\n    database = %s\n' \
+                "$REDIS_HOST" "$REDIS_PORT" "$REDIS_DATABASE" >> "$CONF"
+              {{- if .Values.redisBackend.username }}
+              printf '    username = "{{ .Values.redisBackend.username }}"\n' >> "$CONF"
+              {{- end }}
+              {{- if .Values.redisBackend.password }}
+              printf '    password = "{{ .Values.redisBackend.password }}"\n' >> "$CONF"
+              {{- end }}
+              echo "✅ Redis pool config injected"
+              {{- end }}
+
+              # =========================================================
+              # STEP 7: Final config verification before startup
+              # =========================================================
+              echo ""
+              echo "📋 Final auth config:"
+              grep -A8 "^\[auth\]" "$CONF" || true
+              echo ""
+              echo "📋 Final DB config:"
+              grep -E "host|port|database|username|driver" "$CONF" | grep -v "^#" || true
+              echo ""
+
+              # Hard checks — abort if JWT is not properly configured
+              if ! grep -Eq 'methods\s*=\s*\["jwt"\]' "$CONF"; then
+                echo "❌ ABORT: methods = [\"jwt\"] not found in config!"
+                exit 1
+              fi
+              if ! grep -Eq '^\[auth\.jwt\]' "$CONF"; then
+                echo "❌ ABORT: [auth.jwt] section missing from config!"
+                exit 1
+              fi
+              if ! grep -Eq 'secret\.(value|file)\s*=' "$CONF"; then
+                echo "❌ ABORT: JWT secret not set in config!"
+                exit 1
+              fi
+              if grep -Eq '^\[auth\.(internal|rdbms|ldap|external)\]' "$CONF"; then
+                echo "❌ ABORT: password-based auth backend still present!"
+                exit 1
+              fi
+
+              echo "✅ All config checks passed — starting MongooseIM..."
               exec /usr/lib/mongooseim/bin/mongooseim foreground
           {{- end }}
           {{- with .Values.securityContext }}

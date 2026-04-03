@@ -16,11 +16,6 @@ env:
   KEEP_COVER_RUNNING: '1'
   SKIP_AUTO_COMPILE: 'true'
 
-  # required for tools/gh-upload-to-s3.sh script
-  # AWS_DEFAULT_REGION: "${{ secrets.AWS_DEFAULT_REGION }}"
-  # AWS_ACCESS_KEY_ID: "${{ secrets.AWS_ACCESS_KEY_ID }}"
-  # AWS_SECRET_ACCESS_KEY: "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
-
 jobs:
 
 # =====================================================
@@ -245,7 +240,6 @@ jobs:
   docker_image:
     name: docker image build
     runs-on: ubuntu-22.04
-    # ✅ Wait for all blocking tests to pass before building & pushing image
     needs: [ small_tests, dialyzer, xref, edoc ]
     permissions:
       contents: read
@@ -269,7 +263,6 @@ jobs:
           echo "sha_tag=${IMAGE}:sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "run_tag=${IMAGE}:run-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "branch_tag=${IMAGE}:${BRANCH_TAG}" >> "$GITHUB_OUTPUT"
-          # push :latest only when building the master branch
           if [[ "${GITHUB_REF_NAME}" == "master" ]]; then
             echo "latest_tag=${IMAGE}:latest" >> "$GITHUB_OUTPUT"
           else
@@ -351,118 +344,169 @@ jobs:
           DB_PASSWORD: ${{ secrets.MIM_DB_PASSWORD }}
           XMPP_HOST: ${{ secrets.MIM_XMPP_HOST }}
           JWT_PUBLIC_KEY: ${{ secrets.MIM_JWT_PUBLIC_KEY }}
-          JWT_PUBLIC_KEY_PATH: ${{ secrets.MIM_JWT_PUBLIC_KEY_PATH }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,XMPP_HOST,JWT_PUBLIC_KEY,JWT_PUBLIC_KEY_PATH
+          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,XMPP_HOST,JWT_PUBLIC_KEY
           script: |
             export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
             cd /opt/MongooseIM99
+
             git fetch origin "${DEPLOY_REF}"
             git checkout "${DEPLOY_REF}" || git checkout -b "${DEPLOY_REF}" "origin/${DEPLOY_REF}"
             git pull --ff-only origin "${DEPLOY_REF}"
+
             SHORT_SHA="${SHORT_SHA:0:7}"
             MIM_NS="mim"
             APP_DEPLOY="mim-mongooseim"
             PG_DEPLOY="mim-mongooseim-postgresql"
             REDIS_DEPLOY="mim-mongooseim-redis"
-            IMAGE="ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
+
+            # ✅ Validate all required secrets are present before doing anything
+            MISSING=""
+            [[ -z "$DB_HOST" ]]        && MISSING="$MISSING DB_HOST"
+            [[ -z "$DB_PASSWORD" ]]    && MISSING="$MISSING DB_PASSWORD"
+            [[ -z "$JWT_PUBLIC_KEY" ]] && MISSING="$MISSING JWT_PUBLIC_KEY"
+            [[ -z "$XMPP_HOST" ]]      && MISSING="$MISSING XMPP_HOST"
+            if [[ -n "$MISSING" ]]; then
+              echo "❌ Missing required secrets:$MISSING"
+              echo "   Set these in GitHub → Settings → Secrets and variables → Actions"
+              exit 1
+            fi
+            echo "✅ All required secrets present"
 
             get_generation() {
-              kubectl get deployment "$1" -n "$MIM_NS" -o jsonpath='{.metadata.generation}' 2>/dev/null || echo "absent"
+              kubectl get deployment "$1" -n "$MIM_NS" \
+                -o jsonpath='{.metadata.generation}' 2>/dev/null || echo "absent"
             }
 
             PG_GEN_BEFORE="$(get_generation "$PG_DEPLOY")"
             REDIS_GEN_BEFORE="$(get_generation "$REDIS_DEPLOY")"
 
-            if [[ -n "${DB_HOST}${DB_NAME}${DB_USER}${DB_PASSWORD}" ]]; then
-              echo "🔐 Applying runtime DB env vars from GitHub Secrets"
-              kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
-                MIM_DB_HOST="${DB_HOST}" \
-                MIM_DB_PORT="${DB_PORT:-5432}" \
-                MIM_DB_NAME="${DB_NAME}" \
-                MIM_DB_USER="${DB_USER}" \
-                MIM_DB_PASSWORD="${DB_PASSWORD}"
-            else
-              echo "ℹ️ DB secrets not fully provided; keeping existing DB env vars"
-            fi
+            # ✅ Inject all secrets as env vars on the MongooseIM deployment
+            # The deployment.yaml startup script reads these and writes them
+            # into the runtime config — no hardcoded values anywhere
+            echo "🔐 Injecting secrets as pod environment variables..."
+            kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
+              MIM_DB_HOST="${DB_HOST}" \
+              MIM_DB_PORT="${DB_PORT:-5432}" \
+              MIM_DB_NAME="${DB_NAME}" \
+              MIM_DB_USER="${DB_USER}" \
+              MIM_DB_PASSWORD="${DB_PASSWORD}" \
+              MIM_XMPP_HOST="${XMPP_HOST}" \
+              MIM_JWT_PUBLIC_KEY="${JWT_PUBLIC_KEY}"
+            echo "✅ Secrets injected as env vars"
 
-            if [[ -n "${XMPP_HOST}" ]]; then
-              echo "🔐 Applying XMPP host from GitHub Secrets"
-              kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
-                MIM_XMPP_HOST="${XMPP_HOST}"
-            fi
-
-            if [[ -n "${JWT_PUBLIC_KEY}" ]]; then
-              echo "🔐 Applying JWT public key from GitHub Secrets"
-              kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
-                MIM_JWT_PUBLIC_KEY="${JWT_PUBLIC_KEY}" \
-                MIM_JWT_PUBLIC_KEY_PATH-
-            fi
-
-            if [[ -n "${JWT_PUBLIC_KEY_PATH}" ]]; then
-              echo "🔐 Applying JWT key path override"
-              kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
-                MIM_JWT_PUBLIC_KEY_PATH="${JWT_PUBLIC_KEY_PATH}"
-            fi
-
-            echo "🚀 Deploying image: ${IMAGE}"
-            echo "🔄 Reconciling MongooseIM release to apply latest app deployment template and image..."
+            # ✅ Deploy new image via Helm (only image changes, secrets stay as env vars)
+            echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
             helm upgrade --install mim-mongooseim ./helm/mongooseim \
               --namespace "$MIM_NS" \
               --reuse-values \
               --set image.repository="ghcr.io/anmol-11w/mongooseim99" \
               --set image.tag="sha-${SHORT_SHA}" \
               --set image.pullPolicy="Always"
-            echo "⏳ Waiting for rollout..."
+
+            echo "⏳ Waiting for rollout to complete..."
             kubectl rollout status deployment/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s
+            echo "✅ Rollout complete"
 
+            # ✅ Verify JWT-only auth in the runtime config inside the pod
+            echo ""
             echo "🔍 Verifying JWT-only auth policy in runtime config..."
-            kubectl exec deployment/${APP_DEPLOY} -n "$MIM_NS" -- sh -ec '
+            kubectl exec deployment/${APP_DEPLOY} -n "$MIM_NS" -c mongooseim -- sh -ec '
               CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
-              test -f "$CONF"
 
-              if ! grep -Eq "^[[:space:]]*methods[[:space:]]*=[[:space:]]*\[\"jwt\"\]" "$CONF"; then
-                echo "❌ JWT-only check failed: methods is not [\"jwt\"]"
+              if [ ! -f "$CONF" ]; then
+                echo "❌ Runtime config not found at $CONF"
                 exit 1
               fi
 
-              if ! grep -Eq "^[[:space:]]*sasl_mechanisms[[:space:]]*=[[:space:]]*\[\"plain\"\]" "$CONF"; then
-                echo "❌ JWT-only check failed: sasl_mechanisms is not [\"plain\"]"
+              echo "📄 Auth section in runtime config:"
+              grep -A12 "^\[auth\]" "$CONF" || true
+              echo ""
+
+              # Must have methods = ["jwt"]
+              if ! grep -Eq "methods\s*=\s*\[\"jwt\"\]" "$CONF"; then
+                echo "❌ FAILED: methods = [\"jwt\"] not found — password login may be open!"
                 exit 1
               fi
 
-              if grep -Eq "^\[auth\.(internal|rdbms)\]" "$CONF"; then
-                echo "❌ JWT-only check failed: password auth backend section found"
+              # Must have sasl_mechanisms = ["plain"]
+              if ! grep -Eq "sasl_mechanisms\s*=\s*\[\"plain\"\]" "$CONF"; then
+                echo "❌ FAILED: sasl_mechanisms = [\"plain\"] not found"
                 exit 1
               fi
 
-              echo "✅ JWT-only auth policy verified"
+              # Must have [auth.jwt] section
+              if ! grep -Eq "^\[auth\.jwt\]" "$CONF"; then
+                echo "❌ FAILED: [auth.jwt] section missing"
+                exit 1
+              fi
+
+              # Must have secret configured
+              if ! grep -Eq "secret\.(value|file)\s*=" "$CONF"; then
+                echo "❌ FAILED: JWT secret not configured"
+                exit 1
+              fi
+
+              # Must NOT have any password-based auth backend
+              if grep -Eq "^\[auth\.(internal|rdbms|ldap|external)\]" "$CONF"; then
+                echo "❌ FAILED: password-based auth backend found — users can login with password!"
+                exit 1
+              fi
+
+              echo "✅ JWT-only auth verified — password login is BLOCKED"
             '
 
+            # ✅ Verify DB config has no hardcoded fallback values
+            echo ""
+            echo "🔍 Verifying DB config has no hardcoded values..."
+            kubectl exec deployment/${APP_DEPLOY} -n "$MIM_NS" -c mongooseim -- sh -ec '
+              CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
+
+              echo "📄 DB config in runtime config:"
+              grep -E "driver|host|port|database|username" "$CONF" | grep -v "^#" || true
+              echo ""
+
+              if grep -q "host = \"localhost\"" "$CONF"; then
+                echo "❌ FAILED: hardcoded localhost found in DB config!"
+                exit 1
+              fi
+
+              if grep -q "mongooseim_secret" "$CONF"; then
+                echo "❌ FAILED: hardcoded default password found in DB config!"
+                exit 1
+              fi
+
+              echo "✅ DB config verified — no hardcoded values"
+            '
+
+            # ✅ Verify PostgreSQL and Redis deployments were NOT changed
             PG_GEN_AFTER="$(get_generation "$PG_DEPLOY")"
             REDIS_GEN_AFTER="$(get_generation "$REDIS_DEPLOY")"
 
             if [[ "$PG_GEN_BEFORE" != "$PG_GEN_AFTER" ]]; then
-              echo "❌ PostgreSQL deployment changed (${PG_GEN_BEFORE} -> ${PG_GEN_AFTER})."
+              echo "❌ PostgreSQL deployment changed unexpectedly! (${PG_GEN_BEFORE} -> ${PG_GEN_AFTER})"
               exit 1
             fi
 
             if [[ "$REDIS_GEN_BEFORE" != "$REDIS_GEN_AFTER" ]]; then
-              echo "❌ Redis deployment changed (${REDIS_GEN_BEFORE} -> ${REDIS_GEN_AFTER})."
+              echo "❌ Redis deployment changed unexpectedly! (${REDIS_GEN_BEFORE} -> ${REDIS_GEN_AFTER})"
               exit 1
             fi
 
-            echo "✅ Verified: PostgreSQL and Redis deployments were not changed."
+            echo "✅ PostgreSQL and Redis deployments unchanged"
+            echo ""
             echo "✅ Deployment complete!"
-            echo "🐘 PostgreSQL pods (if running):"
-            kubectl get pods -n "$MIM_NS" | grep -Ei 'postgres|pgsql' || true
+            echo ""
             echo "📦 Running pods:"
             kubectl get pods -n "$MIM_NS"
+            echo ""
             echo "🔍 Image verification:"
-            kubectl get pods -n "$MIM_NS" -o jsonpath='{range .items[*]}{.metadata.name}{" -> "}{.status.containerStatuses[0].imageID}{"\n"}{end}'
+            kubectl get pods -n "$MIM_NS" \
+              -o jsonpath='{range .items[*]}{.metadata.name}{" -> "}{.status.containerStatuses[0].imageID}{"\n"}{end}'
+
 
 # =====================================================
 # MONITORING DEPLOY
