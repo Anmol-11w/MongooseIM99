@@ -44,6 +44,7 @@ spec:
               set -e
               CONF_SOURCE="/etc/mongooseim/mongooseim.toml"
               CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
+              JWT_KEY_FILE="/var/lib/mongooseim/jwt_public_key.pem"
               mkdir -p /var/lib/mongooseim
               cp "$CONF_SOURCE" "$CONF"
               export EJABBERD_CONFIG_PATH="$CONF"
@@ -73,113 +74,67 @@ spec:
               fi
 
               # =========================================================
-              # STEP 2: Enforce JWT-only auth methods + sasl_mechanisms
+              # STEP 2: Replace entire [auth] block with clean JWT-only config
               # =========================================================
-              echo "🔐 Enforcing JWT-only authentication..."
+              echo "🔐 Rewriting [auth] section for JWT-only authentication..."
               awk '
-                BEGIN { in_auth = 0; methods_seen = 0; sasl_seen = 0 }
+                BEGIN { in_auth = 0; auth_written = 0 }
                 /^\[auth\]/ {
                   in_auth = 1
-                  methods_seen = 0
-                  sasl_seen = 0
-                  print
+                  next
+                }
+                in_auth && /^\[auth\./ {
                   next
                 }
                 in_auth && /^\[/ {
-                  if (methods_seen == 0) print "  methods = [\"jwt\"]"
-                  if (sasl_seen == 0) print "  sasl_mechanisms = [\"plain\"]"
+                  if (auth_written == 0) {
+                    print "[auth]"
+                    print "  methods = [\"jwt\"]"
+                    print "  sasl_mechanisms = [\"plain\"]"
+                    print ""
+                    auth_written = 1
+                  }
                   in_auth = 0
-                }
-                in_auth && /^[[:space:]]*methods[[:space:]]*=.*/ {
-                  print "  methods = [\"jwt\"]"
-                  methods_seen = 1
+                  print
                   next
                 }
-                in_auth && /^[[:space:]]*sasl_mechanisms[[:space:]]*=.*/ {
-                  print "  sasl_mechanisms = [\"plain\"]"
-                  sasl_seen = 1
-                  next
-                }
+                in_auth { next }
                 { print }
                 END {
-                  if (in_auth == 1) {
-                    if (methods_seen == 0) print "  methods = [\"jwt\"]"
-                    if (sasl_seen == 0) print "  sasl_mechanisms = [\"plain\"]"
+                  if (auth_written == 0) {
+                    print "[auth]"
+                    print "  methods = [\"jwt\"]"
+                    print "  sasl_mechanisms = [\"plain\"]"
+                    print ""
                   }
                 }
               ' "$CONF" > "${CONF}.new"
               mv "${CONF}.new" "$CONF"
-              echo "✅ JWT-only auth methods enforced"
+              echo "✅ [auth] rewritten — all password backends removed"
 
               # =========================================================
-              # STEP 3: Remove any existing [auth.internal] or [auth.rdbms]
-              #         so password login is completely blocked
-              # =========================================================
-              echo "🚫 Removing password-based auth backends..."
-              awk '
-                BEGIN { skip = 0 }
-                /^\[auth\.(internal|rdbms|ldap|external)\]/ { skip = 1; next }
-                skip && /^\[/ && $0 !~ /^\[auth\.(internal|rdbms|ldap|external)\]/ { skip = 0 }
-                !skip { print }
-              ' "$CONF" > "${CONF}.new"
-              mv "${CONF}.new" "$CONF"
-              echo "✅ Password-based auth backends removed"
-
-              # =========================================================
-              # STEP 4: Inject [auth.jwt] section with secret from env var
+              # STEP 3: Write JWT public key to file and inject [auth.jwt]
+              # RSA public keys must be written to a file, not inline value
               # =========================================================
               if [[ -z "${MIM_JWT_PUBLIC_KEY:-}" ]]; then
                 echo "❌ FATAL: MIM_JWT_PUBLIC_KEY env var is not set!"
-                echo "   Users will not be able to login. Aborting startup."
                 exit 1
               fi
 
-              echo "🔑 Injecting JWT secret into config..."
+              echo "🔑 Writing JWT public key to file: $JWT_KEY_FILE"
+              # Handle both literal \n and real newlines in the key
+              echo "${MIM_JWT_PUBLIC_KEY}" | sed 's/\\\\n/\n/g' > "$JWT_KEY_FILE"
+              chmod 600 "$JWT_KEY_FILE"
+              echo "✅ JWT public key file written"
 
-              # Remove any existing [auth.jwt] section first
-              awk '
-                BEGIN { skip = 0 }
-                /^\[auth\.jwt\]/ { skip = 1; next }
-                skip && /^\[/ && $0 !~ /^\[auth\.jwt\]/ { skip = 0 }
-                !skip { print }
-              ' "$CONF" > "${CONF}.new"
-              mv "${CONF}.new" "$CONF"
-
-              # Append fresh [auth.jwt] section
-              printf '\n[auth.jwt]\n  secret.value = "%s"\n  token_user_key = "sub"\n' \
-                "$MIM_JWT_PUBLIC_KEY" >> "$CONF"
-              echo "✅ JWT secret injected"
-
-              # If a file path override is also provided, use that instead
-              if [[ -n "${MIM_JWT_PUBLIC_KEY_PATH:-}" ]]; then
-                echo "🔑 JWT key path override detected: $MIM_JWT_PUBLIC_KEY_PATH"
-                awk -v jwt_path="$MIM_JWT_PUBLIC_KEY_PATH" '
-                  BEGIN { in_jwt = 0 }
-                  /^\[auth\.jwt\]/ { in_jwt = 1; print; next }
-                  in_jwt && /^\[/ {
-                    printf "  secret.file = \"%s\"\n", jwt_path
-                    in_jwt = 0
-                    print
-                    next
-                  }
-                  in_jwt && /^[[:space:]]*secret\.(value|file)[[:space:]]*=.*/ {
-                    printf "  secret.file = \"%s\"\n", jwt_path
-                    next
-                  }
-                  { print }
-                  END {
-                    if (in_jwt == 1) {
-                      printf "  secret.file = \"%s\"\n", jwt_path
-                    }
-                  }
-                ' "$CONF" > "${CONF}.new"
-                mv "${CONF}.new" "$CONF"
-                echo "✅ JWT key path applied"
-              fi
+              echo "🔑 Injecting [auth.jwt] section with secret.file..."
+              printf '\n[auth.jwt]\n  secret.file = "%s"\n  algorithm = "RS256"\n  username_key = "sub"\n' \
+                "$JWT_KEY_FILE" >> "$CONF"
+              echo "✅ JWT config injected"
 
               {{- if .Values.postgresqlBackend.enabled }}
               # =========================================================
-              # STEP 5: Wait for PostgreSQL and inject DB config
+              # STEP 4: Wait for PostgreSQL and inject DB config
               # =========================================================
               PG_HOST="${MIM_DB_HOST:-{{ .Values.postgresqlBackend.host }}}"
               PG_PORT="${MIM_DB_PORT:-{{ .Values.postgresqlBackend.port }}}"
@@ -195,7 +150,6 @@ spec:
               done
               echo "✅ PostgreSQL is reachable"
 
-              # Remove existing rdbms pool config
               awk '
                 BEGIN { skip = 0 }
                 /^\[outgoing_pools\.rdbms\.default(\.|\])/ { skip = 1 }
@@ -204,7 +158,6 @@ spec:
               ' "$CONF" > "${CONF}.new"
               mv "${CONF}.new" "$CONF"
 
-              # Append correct DB config from env vars / secrets
               printf '\n[outgoing_pools.rdbms.default]\n  scope = "global"\n  workers = 5\n\n  [outgoing_pools.rdbms.default.connection]\n    driver = "pgsql"\n    host = "%s"\n    port = %s\n    database = "%s"\n    username = "%s"\n    password = "%s"\n' \
                 "$PG_HOST" "$PG_PORT" "$PG_DATABASE" "$PG_USERNAME" "$PG_PASSWORD" >> "$CONF"
               echo "✅ PostgreSQL pool config injected"
@@ -212,7 +165,7 @@ spec:
 
               {{- if .Values.redisBackend.enabled }}
               # =========================================================
-              # STEP 6: Wait for Redis and inject Redis config
+              # STEP 5: Wait for Redis and inject Redis config
               # =========================================================
               REDIS_HOST="${MIM_REDIS_HOST:-{{ .Values.redisBackend.host }}}"
               REDIS_PORT="${MIM_REDIS_PORT:-{{ .Values.redisBackend.port }}}"
@@ -226,7 +179,6 @@ spec:
               done
               echo "✅ Redis is reachable"
 
-              # Remove existing redis pool config
               awk '
                 BEGIN { skip = 0 }
                 /^\[outgoing_pools\.redis\.global_distrib(\.|\])/ { skip = 1 }
@@ -235,7 +187,6 @@ spec:
               ' "$CONF" > "${CONF}.new"
               mv "${CONF}.new" "$CONF"
 
-              # Append Redis config
               printf '\n[outgoing_pools.redis.global_distrib]\n  scope = "global"\n  workers = 10\n\n  [outgoing_pools.redis.global_distrib.connection]\n    host = "%s"\n    port = %s\n    database = %s\n' \
                 "$REDIS_HOST" "$REDIS_PORT" "$REDIS_DATABASE" >> "$CONF"
               {{- if .Values.redisBackend.username }}
@@ -248,27 +199,27 @@ spec:
               {{- end }}
 
               # =========================================================
-              # STEP 7: Final config verification before startup
+              # STEP 6: Final verification before startup
               # =========================================================
               echo ""
               echo "📋 Final auth config:"
               grep -A8 "^\[auth\]" "$CONF" || true
               echo ""
-              echo "📋 Final DB config:"
-              grep -E "host|port|database|username|driver" "$CONF" | grep -v "^#" || true
+              echo "📋 JWT key file check:"
+              head -1 "$JWT_KEY_FILE"
+              tail -1 "$JWT_KEY_FILE"
               echo ""
 
-              # Hard checks — abort if JWT is not properly configured
-              if ! grep -Eq 'methods\s*=\s*\["jwt"\]' "$CONF"; then
-                echo "❌ ABORT: methods = [\"jwt\"] not found in config!"
+              if ! grep -Eq '^[[:space:]]*methods[[:space:]]*=[[:space:]]*\["jwt"\]' "$CONF"; then
+                echo "❌ ABORT: methods = [\"jwt\"] not found!"
                 exit 1
               fi
               if ! grep -Eq '^\[auth\.jwt\]' "$CONF"; then
-                echo "❌ ABORT: [auth.jwt] section missing from config!"
+                echo "❌ ABORT: [auth.jwt] section missing!"
                 exit 1
               fi
-              if ! grep -Eq 'secret\.(value|file)\s*=' "$CONF"; then
-                echo "❌ ABORT: JWT secret not set in config!"
+              if ! grep -Eq 'secret\.(value|file)[[:space:]]*=' "$CONF"; then
+                echo "❌ ABORT: JWT secret not set!"
                 exit 1
               fi
               if grep -Eq '^\[auth\.(internal|rdbms|ldap|external)\]' "$CONF"; then
