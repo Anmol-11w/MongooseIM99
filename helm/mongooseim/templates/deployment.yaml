@@ -66,6 +66,41 @@ spec:
                 mv "${CONF}.new" "$CONF"
               fi
 
+              # Enforce JWT-only authentication regardless of base template values.
+              awk '
+                BEGIN { in_auth = 0; methods_seen = 0; sasl_seen = 0 }
+                /^\[auth\]/ {
+                  in_auth = 1
+                  methods_seen = 0
+                  sasl_seen = 0
+                  print
+                  next
+                }
+                in_auth && /^\[/ {
+                  if (methods_seen == 0) print "  methods = [\"jwt\"]"
+                  if (sasl_seen == 0) print "  sasl_mechanisms = [\"plain\"]"
+                  in_auth = 0
+                }
+                in_auth && /^[[:space:]]*methods[[:space:]]*=.*/ {
+                  print "  methods = [\"jwt\"]"
+                  methods_seen = 1
+                  next
+                }
+                in_auth && /^[[:space:]]*sasl_mechanisms[[:space:]]*=.*/ {
+                  print "  sasl_mechanisms = [\"plain\"]"
+                  sasl_seen = 1
+                  next
+                }
+                { print }
+                END {
+                  if (in_auth == 1) {
+                    if (methods_seen == 0) print "  methods = [\"jwt\"]"
+                    if (sasl_seen == 0) print "  sasl_mechanisms = [\"plain\"]"
+                  }
+                }
+              ' "$CONF" > "${CONF}.new"
+              mv "${CONF}.new" "$CONF"
+
               {{- if .Values.postgresqlBackend.enabled }}
               PG_HOST="${MIM_DB_HOST:-{{ .Values.postgresqlBackend.host }}}"
               PG_PORT="${MIM_DB_PORT:-{{ .Values.postgresqlBackend.port }}}"
@@ -77,13 +112,6 @@ spec:
                 (echo > /dev/tcp/${PG_HOST}/${PG_PORT}) >/dev/null 2>&1 && break
                 sleep 1
               done
-              sed -i 's/^\[auth\.rdbms\]/[auth.rdbms]/' "$CONF" || true
-              if ! grep -q '^\[auth.rdbms\]' "$CONF"; then
-                printf '\n[auth.rdbms]\n' >> "$CONF"
-              fi
-              sed -i '/^[[:space:]]*\[auth\.internal\]/d' "$CONF"
-              sed -i '/^\[internal_databases\.mnesia\]/d' "$CONF"
-
               sed -i '/^[[:space:]]*outgoing_pools\.rdbms\.default\./d' "$CONF"
 
               awk '
