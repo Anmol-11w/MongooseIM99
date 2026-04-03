@@ -12,7 +12,7 @@ postgresqlBackend:
   port: 5432
   database: "mongooseim"
   username: "mongooseim"
-  password: "mongooseim"
+  password: "mongooseim_secret"
 
 postgresql:
   enabled: true
@@ -21,7 +21,7 @@ postgresql:
   rootPassword: "secret"
   database: "mongooseim"
   username: "mongooseim"
-  password: "mongooseim"
+  password: "mongooseim_secret"
   persistence:
     enabled: true
     size: 5Gi
