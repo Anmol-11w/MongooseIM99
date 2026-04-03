@@ -47,6 +47,25 @@ spec:
               cp "$CONF_SOURCE" "$CONF"
               export EJABBERD_CONFIG_PATH="$CONF"
               echo "Using EJABBERD_CONFIG_PATH=$EJABBERD_CONFIG_PATH"
+
+              if [[ -n "${MIM_XMPP_HOST:-}" ]]; then
+                awk -v xmpp_host="$MIM_XMPP_HOST" '
+                  BEGIN { in_general = 0 }
+                  /^\[general\]/ { in_general = 1; print; next }
+                  in_general && /^\[/ { in_general = 0 }
+                  in_general && /^[[:space:]]*hosts[[:space:]]*=.*/ {
+                    printf "  hosts = [\"%s\"]\n", xmpp_host
+                    next
+                  }
+                  in_general && /^[[:space:]]*default_server_domain[[:space:]]*=.*/ {
+                    printf "  default_server_domain = \"%s\"\n", xmpp_host
+                    next
+                  }
+                  { print }
+                ' "$CONF" > "${CONF}.new"
+                mv "${CONF}.new" "$CONF"
+              fi
+
               {{- if .Values.postgresqlBackend.enabled }}
               PG_HOST="${MIM_DB_HOST:-{{ .Values.postgresqlBackend.host }}}"
               PG_PORT="${MIM_DB_PORT:-{{ .Values.postgresqlBackend.port }}}"

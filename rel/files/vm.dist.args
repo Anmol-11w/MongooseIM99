@@ -12,8 +12,8 @@
 ## Once a connection is established, Erlang doesn't differentiate between
 ## a client and a server - the same certs/keys can be used on both sides.
 #-proto_dist inet_tls
-#-ssl_dist_opt server_certfile   {{output_dir}}/priv/ssl/fake_cert.pem client_certfile   {{output_dir}}/priv/ssl/fake_cert.pem
-#              server_keyfile    {{output_dir}}/priv/ssl/fake_key.pem  client_keyfile    {{output_dir}}/priv/ssl/fake_key.pem
+#-ssl_dist_opt server_certfile   {{output_dir}}/priv/ssl/cert.pem client_certfile   {{output_dir}}/priv/ssl/cert.pem
+#              server_keyfile    {{output_dir}}/priv/ssl/key.pem  client_keyfile    {{output_dir}}/priv/ssl/key.pem
 #              server_cacertfile {{output_dir}}/priv/ssl/cacert.pem    client_cacertfile {{output_dir}}/priv/ssl/cacert.pem
 #              client_verify     verify_peer
 #              server_verify     verify_peer

@@ -349,12 +349,14 @@ jobs:
           DB_NAME: ${{ secrets.MIM_DB_NAME }}
           DB_USER: ${{ secrets.MIM_DB_USER }}
           DB_PASSWORD: ${{ secrets.MIM_DB_PASSWORD }}
+          XMPP_HOST: ${{ secrets.MIM_XMPP_HOST }}
+          JWT_PUBLIC_KEY: ${{ secrets.MIM_JWT_PUBLIC_KEY }}
           JWT_PUBLIC_KEY_PATH: ${{ secrets.MIM_JWT_PUBLIC_KEY_PATH }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,JWT_PUBLIC_KEY_PATH
+          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,XMPP_HOST,JWT_PUBLIC_KEY,JWT_PUBLIC_KEY_PATH
           script: |
             export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
             cd /opt/MongooseIM99
@@ -385,6 +387,19 @@ jobs:
                 MIM_DB_PASSWORD="${DB_PASSWORD}"
             else
               echo "ℹ️ DB secrets not fully provided; keeping existing DB env vars"
+            fi
+
+            if [[ -n "${XMPP_HOST}" ]]; then
+              echo "🔐 Applying XMPP host from GitHub Secrets"
+              kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
+                MIM_XMPP_HOST="${XMPP_HOST}"
+            fi
+
+            if [[ -n "${JWT_PUBLIC_KEY}" ]]; then
+              echo "🔐 Applying JWT public key from GitHub Secrets"
+              kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
+                MIM_JWT_PUBLIC_KEY="${JWT_PUBLIC_KEY}" \
+                MIM_JWT_PUBLIC_KEY_PATH-
             fi
 
             if [[ -n "${JWT_PUBLIC_KEY_PATH}" ]]; then
