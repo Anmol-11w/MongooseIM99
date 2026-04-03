@@ -344,11 +344,17 @@ jobs:
         env:
           SHORT_SHA: ${{ github.sha }}
           DEPLOY_REF: ${{ github.ref_name }}
+          DB_HOST: ${{ secrets.MIM_DB_HOST }}
+          DB_PORT: ${{ secrets.MIM_DB_PORT }}
+          DB_NAME: ${{ secrets.MIM_DB_NAME }}
+          DB_USER: ${{ secrets.MIM_DB_USER }}
+          DB_PASSWORD: ${{ secrets.MIM_DB_PASSWORD }}
+          JWT_PUBLIC_KEY_PATH: ${{ secrets.MIM_JWT_PUBLIC_KEY_PATH }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: SHORT_SHA,DEPLOY_REF
+          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,JWT_PUBLIC_KEY_PATH
           script: |
             export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
             cd /opt/MongooseIM99
@@ -356,18 +362,64 @@ jobs:
             git checkout "${DEPLOY_REF}" || git checkout -b "${DEPLOY_REF}" "origin/${DEPLOY_REF}"
             git pull --ff-only origin "${DEPLOY_REF}"
             SHORT_SHA="${SHORT_SHA:0:7}"
-            echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
+            MIM_NS="mim"
+            APP_DEPLOY="mim-mongooseim"
+            PG_DEPLOY="mim-mongooseim-postgresql"
+            REDIS_DEPLOY="mim-mongooseim-redis"
+            IMAGE="ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
+
+            get_generation() {
+              kubectl get deployment "$1" -n "$MIM_NS" -o jsonpath='{.metadata.generation}' 2>/dev/null || echo "absent"
+            }
+
+            PG_GEN_BEFORE="$(get_generation "$PG_DEPLOY")"
+            REDIS_GEN_BEFORE="$(get_generation "$REDIS_DEPLOY")"
+
+            if [[ -n "${DB_HOST}${DB_NAME}${DB_USER}${DB_PASSWORD}" ]]; then
+              echo "🔐 Applying runtime DB env vars from GitHub Secrets"
+              kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
+                MIM_DB_HOST="${DB_HOST}" \
+                MIM_DB_PORT="${DB_PORT:-5432}" \
+                MIM_DB_NAME="${DB_NAME}" \
+                MIM_DB_USER="${DB_USER}" \
+                MIM_DB_PASSWORD="${DB_PASSWORD}"
+            else
+              echo "ℹ️ DB secrets not fully provided; keeping existing DB env vars"
+            fi
+
+            if [[ -n "${JWT_PUBLIC_KEY_PATH}" ]]; then
+              echo "🔐 Applying JWT key path override"
+              kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
+                MIM_JWT_PUBLIC_KEY_PATH="${JWT_PUBLIC_KEY_PATH}"
+            fi
+
+            echo "🚀 Deploying image: ${IMAGE}"
             echo "🔄 Updating only MongooseIM app container image (no Helm reconcile)..."
-            kubectl set image deployment/mim-mongooseim mongooseim=ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA} -n mim
+            kubectl set image deployment/${APP_DEPLOY} mongooseim=${IMAGE} -n "$MIM_NS"
             echo "⏳ Waiting for rollout..."
-            kubectl rollout status deployment/mim-mongooseim -n mim --timeout=300s
+            kubectl rollout status deployment/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s
+
+            PG_GEN_AFTER="$(get_generation "$PG_DEPLOY")"
+            REDIS_GEN_AFTER="$(get_generation "$REDIS_DEPLOY")"
+
+            if [[ "$PG_GEN_BEFORE" != "$PG_GEN_AFTER" ]]; then
+              echo "❌ PostgreSQL deployment changed (${PG_GEN_BEFORE} -> ${PG_GEN_AFTER})."
+              exit 1
+            fi
+
+            if [[ "$REDIS_GEN_BEFORE" != "$REDIS_GEN_AFTER" ]]; then
+              echo "❌ Redis deployment changed (${REDIS_GEN_BEFORE} -> ${REDIS_GEN_AFTER})."
+              exit 1
+            fi
+
+            echo "✅ Verified: PostgreSQL and Redis deployments were not changed."
             echo "✅ Deployment complete!"
             echo "🐘 PostgreSQL pods (if running):"
-            kubectl get pods -n mim | grep -Ei 'postgres|pgsql' || true
+            kubectl get pods -n "$MIM_NS" | grep -Ei 'postgres|pgsql' || true
             echo "📦 Running pods:"
-            kubectl get pods -n mim
+            kubectl get pods -n "$MIM_NS"
             echo "🔍 Image verification:"
-            kubectl get pods -n mim -o jsonpath='{range .items[*]}{.metadata.name}{" -> "}{.status.containerStatuses[0].imageID}{"\n"}{end}'
+            kubectl get pods -n "$MIM_NS" -o jsonpath='{range .items[*]}{.metadata.name}{" -> "}{.status.containerStatuses[0].imageID}{"\n"}{end}'
 
 # =====================================================
 # MONITORING DEPLOY

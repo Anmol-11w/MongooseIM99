@@ -19,7 +19,9 @@ RUN apt-get update \
 COPY . .
 
 RUN ./tools/configure system=yes prefix=/ \
-    && make rel install
+    && test -f rel/prod.vars-toml.config \
+    && make rel install \
+    && test -f /etc/mongooseim/mongooseim.toml
 
 
 FROM debian:trixie-slim AS runtime

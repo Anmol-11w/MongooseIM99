@@ -42,13 +42,20 @@ spec:
             - -ec
             - |
               set -e
-              CONF="/tmp/mongooseim.toml"
-              cp /etc/mongooseim/mongooseim.toml "$CONF"
+              CONF_SOURCE="/etc/mongooseim/mongooseim.toml"
+              CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
+              cp "$CONF_SOURCE" "$CONF"
               export EJABBERD_CONFIG_PATH="$CONF"
               echo "Using EJABBERD_CONFIG_PATH=$EJABBERD_CONFIG_PATH"
               {{- if .Values.postgresqlBackend.enabled }}
+              PG_HOST="${MIM_DB_HOST:-{{ .Values.postgresqlBackend.host }}}"
+              PG_PORT="${MIM_DB_PORT:-{{ .Values.postgresqlBackend.port }}}"
+              PG_DATABASE="${MIM_DB_NAME:-{{ .Values.postgresqlBackend.database }}}"
+              PG_USERNAME="${MIM_DB_USER:-{{ .Values.postgresqlBackend.username }}}"
+              PG_PASSWORD="${MIM_DB_PASSWORD:-{{ .Values.postgresqlBackend.password }}}"
+
               for i in $(seq 1 120); do
-                (echo > /dev/tcp/{{ .Values.postgresqlBackend.host }}/{{ .Values.postgresqlBackend.port }}) >/dev/null 2>&1 && break
+                (echo > /dev/tcp/${PG_HOST}/${PG_PORT}) >/dev/null 2>&1 && break
                 sleep 1
               done
               sed -i 's/^\[auth\.rdbms\]/[auth.rdbms]/' "$CONF" || true
@@ -68,11 +75,15 @@ spec:
               ' "$CONF" > "${CONF}.new"
               mv "${CONF}.new" "$CONF"
 
-              printf '\n[outgoing_pools.rdbms.default]\n  scope = "global"\n  workers = 5\n\n  [outgoing_pools.rdbms.default.connection]\n    driver = "pgsql"\n    host = "{{ .Values.postgresqlBackend.host }}"\n    port = {{ .Values.postgresqlBackend.port }}\n    database = "{{ .Values.postgresqlBackend.database }}"\n    username = "{{ .Values.postgresqlBackend.username }}"\n    password = "{{ .Values.postgresqlBackend.password }}"\n' >> "$CONF"
+              printf '\n[outgoing_pools.rdbms.default]\n  scope = "global"\n  workers = 5\n\n  [outgoing_pools.rdbms.default.connection]\n    driver = "pgsql"\n    host = "%s"\n    port = %s\n    database = "%s"\n    username = "%s"\n    password = "%s"\n' "$PG_HOST" "$PG_PORT" "$PG_DATABASE" "$PG_USERNAME" "$PG_PASSWORD" >> "$CONF"
               {{- end }}
               {{- if .Values.redisBackend.enabled }}
+              REDIS_HOST="${MIM_REDIS_HOST:-{{ .Values.redisBackend.host }}}"
+              REDIS_PORT="${MIM_REDIS_PORT:-{{ .Values.redisBackend.port }}}"
+              REDIS_DATABASE="${MIM_REDIS_DATABASE:-{{ .Values.redisBackend.database }}}"
+
               for i in $(seq 1 120); do
-                (echo > /dev/tcp/{{ .Values.redisBackend.host }}/{{ .Values.redisBackend.port }}) >/dev/null 2>&1 && break
+                (echo > /dev/tcp/${REDIS_HOST}/${REDIS_PORT}) >/dev/null 2>&1 && break
                 sleep 1
               done
 
@@ -84,7 +95,7 @@ spec:
               ' "$CONF" > "${CONF}.new"
               mv "${CONF}.new" "$CONF"
 
-              printf '\n[outgoing_pools.redis.global_distrib]\n  scope = "global"\n  workers = 10\n\n  [outgoing_pools.redis.global_distrib.connection]\n    host = "{{ .Values.redisBackend.host }}"\n    port = {{ .Values.redisBackend.port }}\n    database = {{ .Values.redisBackend.database }}\n' >> "$CONF"
+              printf '\n[outgoing_pools.redis.global_distrib]\n  scope = "global"\n  workers = 10\n\n  [outgoing_pools.redis.global_distrib.connection]\n    host = "%s"\n    port = %s\n    database = %s\n' "$REDIS_HOST" "$REDIS_PORT" "$REDIS_DATABASE" >> "$CONF"
               {{- if .Values.redisBackend.username }}
               printf '    username = "{{ .Values.redisBackend.username }}"\n' >> "$CONF"
               {{- end }}
@@ -92,6 +103,29 @@ spec:
               printf '    password = "{{ .Values.redisBackend.password }}"\n' >> "$CONF"
               {{- end }}
               {{- end }}
+              if [[ -n "${MIM_JWT_PUBLIC_KEY_PATH:-}" ]]; then
+                awk -v jwt_path="$MIM_JWT_PUBLIC_KEY_PATH" '
+                  BEGIN { in_jwt = 0 }
+                  /^\[auth\.jwt\]/ { in_jwt = 1; print; next }
+                  in_jwt && /^\[/ {
+                    printf "  secret.file = \"%s\"\n", jwt_path
+                    in_jwt = 0
+                    print
+                    next
+                  }
+                  in_jwt && /^[[:space:]]*secret\.file[[:space:]]*=.*/ {
+                    printf "  secret.file = \"%s\"\n", jwt_path
+                    next
+                  }
+                  { print }
+                  END {
+                    if (in_jwt == 1) {
+                      printf "  secret.file = \"%s\"\n", jwt_path
+                    }
+                  }
+                ' "$CONF" > "${CONF}.new"
+                mv "${CONF}.new" "$CONF"
+              fi
               echo "Configured outgoing_pools in $CONF:"
               grep -n 'outgoing_pools\.rdbms\.default\|outgoing_pools\.redis\.global_distrib\|driver = "pgsql"\|host = \|port = \|database = \|username = ' "$CONF" || true
               exec /usr/lib/mongooseim/bin/mongooseim foreground

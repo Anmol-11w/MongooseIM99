@@ -133,6 +133,9 @@
   {{#cyrsasl_external}}
   sasl_external = [{{{cyrsasl_external}}}]
   {{/cyrsasl_external}}
+  {{#auth_methods}}
+  methods = [{{{auth_methods}}}]
+  {{/auth_methods}}
   {{#sasl_mechanisms}}
   sasl_mechanisms = [{{{sasl_mechanisms}}}]
   {{/sasl_mechanisms}}
@@ -167,10 +170,10 @@
 
   [outgoing_pools.rdbms.default.connection]
     driver = "pgsql"
-    host = "localhost"
-    database = "mongooseim"
-    username = "mongooseim"
-    password = "mongooseim_secret"
+    host = {{{rdbms_host}}}
+    database = {{{rdbms_database}}}
+    username = {{{rdbms_username}}}
+    password = {{{rdbms_password}}}
     tls.required = true
     tls.cacertfile = "priv/ssl/cacert.pem"
     tls.server_name_indication.enabled = false
