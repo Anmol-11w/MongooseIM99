@@ -389,12 +389,12 @@ jobs:
             # into the runtime config — no hardcoded values anywhere
             echo "🔐 Injecting secrets as pod environment variables..."
             kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
-              MIM_DB_HOST="$(printf '%s' "${DB_HOST}" | tr -d '\n\r')" \
-              MIM_DB_PORT="$(printf '%s' "${DB_PORT:-5432}" | tr -d '\n\r')" \
-              MIM_DB_NAME="$(printf '%s' "${DB_NAME}" | tr -d '\n\r')" \
-              MIM_DB_USER="$(printf '%s' "${DB_USER}" | tr -d '\n\r')" \
-              MIM_DB_PASSWORD="$(printf '%s' "${DB_PASSWORD}" | tr -d '\n\r')" \
-              MIM_XMPP_HOST="$(printf '%s' "${XMPP_HOST}" | tr -d '\n\r')" \
+              MIM_DB_HOST="${DB_HOST}" \
+              MIM_DB_PORT="${DB_PORT:-5432}" \
+              MIM_DB_NAME="${DB_NAME}" \
+              MIM_DB_USER="${DB_USER}" \
+              MIM_DB_PASSWORD="${DB_PASSWORD}" \
+              MIM_XMPP_HOST="${XMPP_HOST}" \
               MIM_JWT_PUBLIC_KEY="${JWT_PUBLIC_KEY}"
             echo "✅ Secrets injected as env vars"
 
