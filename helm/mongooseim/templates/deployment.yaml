@@ -45,6 +45,9 @@ spec:
               CONF_SOURCE="/etc/mongooseim/mongooseim.toml"
               CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
               JWT_KEY_FILE="/var/lib/mongooseim/jwt_public_key.pem"
+              sanitize_single_line() {
+                printf '%s' "$1" | tr -d '\r\n'
+              }
               mkdir -p /var/lib/mongooseim
               cp "$CONF_SOURCE" "$CONF"
               export EJABBERD_CONFIG_PATH="$CONF"
@@ -53,9 +56,10 @@ spec:
               # =========================================================
               # STEP 1: Patch XMPP host if provided
               # =========================================================
-              if [[ -n "${MIM_XMPP_HOST:-}" ]]; then
-                echo "🌐 Patching XMPP host to: $MIM_XMPP_HOST"
-                awk -v xmpp_host="$MIM_XMPP_HOST" '
+              XMPP_HOST_CLEAN="$(sanitize_single_line "${MIM_XMPP_HOST:-}")"
+              if [[ -n "$XMPP_HOST_CLEAN" ]]; then
+                echo "🌐 Patching XMPP host to: $XMPP_HOST_CLEAN"
+                awk -v xmpp_host="$XMPP_HOST_CLEAN" '
                   BEGIN { in_general = 0 }
                   /^\[general\]/ { in_general = 1; print; next }
                   in_general && /^\[/ { in_general = 0 }
@@ -141,6 +145,11 @@ spec:
               PG_DATABASE="${MIM_DB_NAME:-{{ .Values.postgresqlBackend.database }}}"
               PG_USERNAME="${MIM_DB_USER:-{{ .Values.postgresqlBackend.username }}}"
               PG_PASSWORD="${MIM_DB_PASSWORD:-{{ .Values.postgresqlBackend.password }}}"
+              PG_HOST="$(sanitize_single_line "$PG_HOST")"
+              PG_PORT="$(sanitize_single_line "$PG_PORT")"
+              PG_DATABASE="$(sanitize_single_line "$PG_DATABASE")"
+              PG_USERNAME="$(sanitize_single_line "$PG_USERNAME")"
+              PG_PASSWORD="$(sanitize_single_line "$PG_PASSWORD")"
 
               echo "🐘 Waiting for PostgreSQL at $PG_HOST:$PG_PORT..."
               for i in $(seq 1 120); do
@@ -170,6 +179,9 @@ spec:
               REDIS_HOST="${MIM_REDIS_HOST:-{{ .Values.redisBackend.host }}}"
               REDIS_PORT="${MIM_REDIS_PORT:-{{ .Values.redisBackend.port }}}"
               REDIS_DATABASE="${MIM_REDIS_DATABASE:-{{ .Values.redisBackend.database }}}"
+              REDIS_HOST="$(sanitize_single_line "$REDIS_HOST")"
+              REDIS_PORT="$(sanitize_single_line "$REDIS_PORT")"
+              REDIS_DATABASE="$(sanitize_single_line "$REDIS_DATABASE")"
 
               echo "🔴 Waiting for Redis at $REDIS_HOST:$REDIS_PORT..."
               for i in $(seq 1 120); do
