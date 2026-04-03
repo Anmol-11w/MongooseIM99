@@ -103,25 +103,28 @@ check_password(HostType, LUser, LServer, Password) ->
               Key1 when is_binary(Key1) -> Key1;
               {env, Var} -> list_to_binary(os:getenv(Var))
           end,
+    LUserNorm = jid:str_tolower(LUser),
     BinAlg = mongoose_config:get_opt([{auth, HostType}, jwt, algorithm]),
     Alg = binary_to_atom(jid:str_tolower(BinAlg), utf8),
     case jwerl:verify(Password, Alg, Key) of
         {ok, TokenData} ->
             UserKey = mongoose_config:get_opt([{auth,HostType}, jwt, username_key]),
-            case maps:find(UserKey, TokenData) of
+            case get_claim_user(UserKey, TokenData) of
                 {ok, ClaimUser} ->
-                    case jid:str_tolower(ClaimUser) of
-                        LUser ->
+                    case normalize_claim_user(ClaimUser, LServer) of
+                        LUserNorm ->
                             %% Login username matches $token_user_key in TokenData
                             ?LOG_INFO(#{what => jwt_success_auth,
                                         text => <<"Successfully authenticated with JWT">>,
                                         user => LUser, server => LServer,
                                         token => TokenData}),
                             true;
-                        _ ->
+                        ClaimUserNorm ->
                             ?LOG_WARNING(#{what => wrong_jwt_user,
                                            text => <<"JWT contains wrong user">>,
                                            expected_user => ClaimUser,
+                                           normalized_expected_user => ClaimUserNorm,
+                                           normalized_login_user => LUserNorm,
                                            user => LUser, server => LServer}),
                             false
                     end;
@@ -175,6 +178,25 @@ get_jwt_secret(HostType) ->
         {file, Path} ->
             {ok, JWTSecret} = file:read_file(Path),
             JWTSecret
+    end.
+
+-spec get_claim_user(atom(), map()) -> {ok, binary()} | error.
+get_claim_user(UserKey, TokenData) ->
+    case maps:find(UserKey, TokenData) of
+        {ok, ClaimUser} ->
+            {ok, ClaimUser};
+        error ->
+            maps:find(atom_to_binary(UserKey, utf8), TokenData)
+    end.
+
+-spec normalize_claim_user(binary(), jid:lserver()) -> binary().
+normalize_claim_user(ClaimUser, LServer) ->
+    ClaimUserNorm = jid:str_tolower(ClaimUser),
+    LServerNorm = jid:str_tolower(LServer),
+    case binary:split(ClaimUserNorm, <<"@">>, [global]) of
+        [Local, LServerNorm] -> Local;
+        [Local, _AnyDomain] -> Local;
+        _ -> ClaimUserNorm
     end.
 
 algorithms() ->
