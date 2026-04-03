@@ -409,10 +409,38 @@ jobs:
             fi
 
             echo "🚀 Deploying image: ${IMAGE}"
-            echo "🔄 Updating only MongooseIM app container image (no Helm reconcile)..."
-            kubectl set image deployment/${APP_DEPLOY} mongooseim=${IMAGE} -n "$MIM_NS"
+            echo "🔄 Reconciling MongooseIM release to apply latest app deployment template and image..."
+            helm upgrade --install mim-mongooseim ./helm/mongooseim \
+              --namespace "$MIM_NS" \
+              --reuse-values \
+              --set image.repository="ghcr.io/anmol-11w/mongooseim99" \
+              --set image.tag="sha-${SHORT_SHA}" \
+              --set image.pullPolicy="Always"
             echo "⏳ Waiting for rollout..."
             kubectl rollout status deployment/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s
+
+            echo "🔍 Verifying JWT-only auth policy in runtime config..."
+            kubectl exec deployment/${APP_DEPLOY} -n "$MIM_NS" -- sh -ec '
+              CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
+              test -f "$CONF"
+
+              if ! grep -Eq "^[[:space:]]*methods[[:space:]]*=[[:space:]]*\[\"jwt\"\]" "$CONF"; then
+                echo "❌ JWT-only check failed: methods is not [\"jwt\"]"
+                exit 1
+              fi
+
+              if ! grep -Eq "^[[:space:]]*sasl_mechanisms[[:space:]]*=[[:space:]]*\[\"plain\"\]" "$CONF"; then
+                echo "❌ JWT-only check failed: sasl_mechanisms is not [\"plain\"]"
+                exit 1
+              fi
+
+              if grep -Eq "^\[auth\.(internal|rdbms)\]" "$CONF"; then
+                echo "❌ JWT-only check failed: password auth backend section found"
+                exit 1
+              fi
+
+              echo "✅ JWT-only auth policy verified"
+            '
 
             PG_GEN_AFTER="$(get_generation "$PG_DEPLOY")"
             REDIS_GEN_AFTER="$(get_generation "$REDIS_DEPLOY")"
