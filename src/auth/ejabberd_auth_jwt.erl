@@ -117,6 +117,7 @@ check_password(HostType, LUser, LServer, Password) ->
                                         text => <<"Successfully authenticated with JWT">>,
                                         user => LUser, server => LServer,
                                         token => TokenData}),
+                            maybe_store_phone(HostType, LServer, LUser, TokenData),
                             true;
                         _ ->
                             ?LOG_WARNING(#{what => wrong_jwt_user,
@@ -181,3 +182,16 @@ algorithms() ->
     [<<"HS256">>, <<"RS256">>, <<"ES256">>,
      <<"HS386">>, <<"RS386">>, <<"ES386">>,
      <<"HS512">>, <<"RS512">>, <<"ES512">>].
+
+%%%----------------------------------------------------------------------
+%%% Phone contacts hook
+%%%----------------------------------------------------------------------
+
+-spec maybe_store_phone(mongooseim:host_type(), jid:lserver(), jid:luser(), map()) -> ok.
+maybe_store_phone(HostType, LServer, LUser, TokenData) ->
+    case maps:find(<<"phone_number">>, TokenData) of
+        {ok, Phone} when is_binary(Phone), Phone =/= <<>> ->
+            mongoose_hooks:jwt_user_phone(HostType, LServer, LUser, Phone);
+        _ ->
+            ok
+    end.
