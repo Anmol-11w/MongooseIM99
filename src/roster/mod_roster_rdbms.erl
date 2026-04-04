@@ -11,6 +11,7 @@
 -module(mod_roster_rdbms).
 
 -include("mod_roster.hrl").
+-include_lib("exml/include/exml.hrl").
 
 -behaviour(mod_roster_backend).
 
@@ -136,10 +137,18 @@ prepare_queries(HostType) ->
                              "WHERE server = ? AND username = ?">>),
     mongoose_rdbms:prepare(roster_get, rosterusers, [server, username],
                            <<"SELECT ", (roster_fields())/binary,
-                             " FROM rosterusers WHERE server = ? AND username = ?">>),
+                             " FROM rosterusers r"
+                             " LEFT JOIN phone_contacts pc"
+                             " ON pc.username = split_part(r.jid, '@', 1)"
+                             " AND pc.server = split_part(r.jid, '@', 2)"
+                             " WHERE r.server = ? AND r.username = ?">>),
     mongoose_rdbms:prepare(roster_get_by_jid, rosterusers, [server, username, jid],
                            <<"SELECT ", (roster_fields())/binary,
-                             " FROM rosterusers WHERE server = ? AND username = ? AND jid = ?">>),
+                             " FROM rosterusers r"
+                             " LEFT JOIN phone_contacts pc"
+                             " ON pc.username = split_part(r.jid, '@', 1)"
+                             " AND pc.server = split_part(r.jid, '@', 2)"
+                             " WHERE r.server = ? AND r.username = ? AND r.jid = ?">>),
     mongoose_rdbms:prepare(roster_group_get, rostergroups, [server, username],
                            <<"SELECT jid, grp FROM rostergroups WHERE server = ? AND username = ?">>),
     mongoose_rdbms:prepare(roster_group_get_by_jid, rostergroups, [server, username, jid],
@@ -264,11 +273,11 @@ groups_to_rows(#roster{us = {LUser, LServer}, jid = JID, groups = Groups}) ->
 
 %% We don't care about `server, subscribe, type' fields
 roster_fields() ->
-    <<"jid, nick, subscription, ask, askmessage">>.
+    <<"r.jid, r.nick, r.subscription, r.ask, r.askmessage, pc.phone">>.
 
 %% Decode fields from `roster_fields()' into a record
 row_to_record(LServer, LUser,
-              {BinJID, Nick, ExtSubscription, ExtAsk, AskMessage}, GroupsPerJID) ->
+              {BinJID, Nick, ExtSubscription, ExtAsk, AskMessage, Phone}, GroupsPerJID) ->
     JID = jid:from_binary_noprep(BinJID), %% We trust the DB has correct jids
     LJID = jid:to_lower(JID), %% Convert to tuple {U,S,R}
     Subscription = decode_subscription(mongoose_rdbms:character_to_integer(ExtSubscription)),
@@ -276,8 +285,18 @@ row_to_record(LServer, LUser,
     US = {LUser, LServer},
     USJ = {US, LJID},
     Groups = maps:get(BinJID, GroupsPerJID, []),
+    PhoneEls = phone_to_xml(Phone),
     #roster{usj = USJ, us = US, jid = LJID, name = Nick,
-            subscription = Subscription, ask = Ask, groups = Groups, askmessage = AskMessage}.
+            subscription = Subscription, ask = Ask, groups = Groups,
+            askmessage = AskMessage, xs = PhoneEls}.
+
+phone_to_xml(null) -> [];
+phone_to_xml(undefined) -> [];
+phone_to_xml(<<>>) -> [];
+phone_to_xml(Phone) when is_binary(Phone) ->
+    [#xmlel{name = <<"phone">>,
+            attrs = #{<<"xmlns">> => <<"wingtrill:roster:phone">>},
+            children = [#xmlcdata{content = Phone}]}].
 
 decode_roster_rows(LServer, LUser, Rows, JIDGroups) ->
     GroupsPerJID = group_per_jid(JIDGroups),

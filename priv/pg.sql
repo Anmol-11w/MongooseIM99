@@ -533,7 +533,7 @@ CREATE TABLE phone_contacts (
     server VARCHAR(250) NOT NULL,
     username VARCHAR(250) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT now(),
-    PRIMARY KEY (last7, phone, server)
+    PRIMARY KEY (phone, server)
 );
 
 CREATE INDEX i_phone_contacts_username

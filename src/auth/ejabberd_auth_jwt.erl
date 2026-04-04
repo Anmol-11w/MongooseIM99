@@ -189,9 +189,9 @@ algorithms() ->
 
 -spec maybe_store_phone(mongooseim:host_type(), jid:lserver(), jid:luser(), map()) -> ok.
 maybe_store_phone(HostType, LServer, LUser, TokenData) ->
-    case maps:find(<<"phone_number">>, TokenData) of
-        {ok, Phone} when is_binary(Phone), Phone =/= <<>> ->
-            mongoose_hooks:jwt_user_phone(HostType, LServer, LUser, Phone);
-        _ ->
-            ok
+    case TokenData of
+      #{phone_number := Phone} when is_binary(Phone), Phone =/= <<>> ->
+        mongoose_hooks:jwt_user_phone(HostType, LServer, LUser, Phone);
+      _ ->
+        ok
     end.
