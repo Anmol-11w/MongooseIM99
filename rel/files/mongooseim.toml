@@ -253,6 +253,9 @@
 
 [modules.mod_carboncopy]
 
+[modules.mod_contact_sync]
+  backend="rdbms"
+
 {{{instrumentation}}}
 
 [shaper.normal]

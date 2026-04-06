@@ -526,3 +526,18 @@ CREATE TABLE blocklist (
     reason TEXT,
     PRIMARY KEY (luser, lserver)
 );
+
+CREATE TABLE phone_contacts (
+    phone VARCHAR(20) NOT NULL,
+    last7 VARCHAR(7) NOT NULL,
+    server VARCHAR(250) NOT NULL,
+    username VARCHAR(250) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    PRIMARY KEY (phone, server)
+);
+
+CREATE INDEX i_phone_contacts_username
+    ON phone_contacts(server, username);
+
+CREATE INDEX idx_phone_contacts_last7
+    ON phone_contacts(server, last7);

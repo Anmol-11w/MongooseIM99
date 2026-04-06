@@ -12,6 +12,7 @@
          adhoc_sm_commands/4,
          anonymous_purge/3,
          auth_failed/3,
+         jwt_user_phone/4,
          does_user_exist/3,
          failed_to_store_message/1,
          filter_local_packet/1,
@@ -201,6 +202,18 @@ anonymous_purge(LServer, Acc, LUser) ->
 auth_failed(HostType, Server, Username) ->
     Params = #{username => Username, server => Server},
     run_hook_for_host_type(auth_failed, HostType, ok, Params).
+
+%%% @doc The `jwt_user_phone' hook is called when a JWT authentication
+%%% succeeds and the token contains a phone_number claim.
+-spec jwt_user_phone(HostType, LServer, LUser, Phone) -> Result when
+    HostType :: mongooseim:host_type(),
+    LServer :: jid:lserver(),
+    LUser :: jid:luser(),
+    Phone :: binary(),
+    Result :: ok.
+jwt_user_phone(HostType, LServer, LUser, Phone) ->
+    Params = #{lserver => LServer, luser => LUser, phone => Phone},
+    run_hook_for_host_type(jwt_user_phone, HostType, ok, Params).
 
 -spec does_user_exist(HostType, Jid, RequestType) -> Result when
       HostType :: mongooseim:host_type(),
