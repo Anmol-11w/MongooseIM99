@@ -8,6 +8,8 @@
          get_user_phone/3,
          remove_user/3]).
 
+-ignore_xref([get_user_phone/3, remove_user/3]).
+
 -define(MAIN_MODULE, mod_contact_sync).
 
 -callback init(mongooseim:host_type(), gen_mod:module_opts()) -> ok.
