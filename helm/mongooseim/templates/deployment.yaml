@@ -50,11 +50,27 @@ spec:
               export EJABBERD_CONFIG_PATH="$CONF"
               echo "Using EJABBERD_CONFIG_PATH=$EJABBERD_CONFIG_PATH"
 
-              # Keep runtime cert paths on bundled fake certs.
+              # Keep default cert paths for local/dev.
               sed -E -i \
                 -e 's|^([[:space:]]*)tls\.certfile[[:space:]]*=.*|\1tls.certfile = "priv/ssl/fake_cert.pem"|' \
                 -e 's|^([[:space:]]*)tls\.keyfile[[:space:]]*=.*|\1tls.keyfile = "priv/ssl/fake_key.pem"|' \
                 "$CONF"
+
+              # For production, allow real PEM values to be provided via env secrets,
+              # but keep the same cert/key paths in config.
+              if [[ -n "${MIM_TLS_CERT_PEM:-}" || -n "${MIM_TLS_KEY_PEM:-}" ]]; then
+                if [[ -z "${MIM_TLS_CERT_PEM:-}" || -z "${MIM_TLS_KEY_PEM:-}" ]]; then
+                  echo "❌ FATAL: both MIM_TLS_CERT_PEM and MIM_TLS_KEY_PEM must be set together"
+                  exit 1
+                fi
+                echo "🔐 Writing TLS cert/key from environment secrets"
+                mkdir -p priv/ssl
+                printf '%s' "${MIM_TLS_CERT_PEM}" | sed 's/\\\\n/\n/g' > priv/ssl/fake_cert.pem
+                printf '%s' "${MIM_TLS_KEY_PEM}" | sed 's/\\\\n/\n/g' > priv/ssl/fake_key.pem
+                chmod 644 priv/ssl/fake_cert.pem
+                chmod 600 priv/ssl/fake_key.pem
+                echo "✅ TLS cert/key files updated at priv/ssl/fake_cert.pem and priv/ssl/fake_key.pem"
+              fi
 
               # =========================================================
               # STEP 1: Patch XMPP host if provided
