@@ -42,16 +42,19 @@ spec:
             - -ec
             - |
               set -e
-              CONF_SOURCE="/etc/mongooseim/mongooseim.toml"
-              CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
+              CONF="/etc/mongooseim.toml"
               JWT_KEY_FILE="/var/lib/mongooseim/jwt_public_key.pem"
               sanitize_single_line() {
                 printf '%s' "$1" | tr -d '\r\n'
               }
-              mkdir -p /var/lib/mongooseim
-              cp "$CONF_SOURCE" "$CONF"
               export EJABBERD_CONFIG_PATH="$CONF"
               echo "Using EJABBERD_CONFIG_PATH=$EJABBERD_CONFIG_PATH"
+
+              # Keep runtime cert paths on bundled fake certs.
+              sed -E -i \
+                -e 's|^([[:space:]]*)tls\.certfile[[:space:]]*=.*|\1tls.certfile = "priv/ssl/fake_cert.pem"|' \
+                -e 's|^([[:space:]]*)tls\.keyfile[[:space:]]*=.*|\1tls.keyfile = "priv/ssl/fake_key.pem"|' \
+                "$CONF"
 
               # =========================================================
               # STEP 1: Patch XMPP host if provided
