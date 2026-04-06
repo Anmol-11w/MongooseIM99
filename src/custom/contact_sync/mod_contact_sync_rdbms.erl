@@ -9,9 +9,7 @@
 
 -export([init/2,
          store_phone/4,
-         lookup_phones/3,
-         get_user_phone/3,
-         remove_user/3]).
+         lookup_phones/3]).
 
 %%%----------------------------------------------------------------------
 %%% API
@@ -61,23 +59,6 @@ lookup_phones(HostType, LServer, Phones) ->
             []
     end.
 
--spec get_user_phone(mongooseim:host_type(), jid:lserver(), jid:luser()) -> binary().
-get_user_phone(HostType, LServer, LUser) ->
-    case mongoose_rdbms:execute_successfully(HostType, phone_contacts_get_by_user,
-                                              [LServer, LUser]) of
-        {selected, []} -> <<>>;
-        {selected, [{Phone}]} -> Phone
-    end.
-
--spec remove_user(mongooseim:host_type(), jid:luser(), jid:lserver()) ->
-    ok | {error, term()}.
-remove_user(HostType, LUser, LServer) ->
-    case mongoose_rdbms:execute_successfully(HostType, phone_contacts_delete_user,
-                                              [LServer, LUser]) of
-        {updated, _} -> ok;
-        {error, Reason} -> {error, Reason}
-    end.
-
 %%%----------------------------------------------------------------------
 %%% Internal helpers
 %%%----------------------------------------------------------------------
@@ -102,14 +83,6 @@ prepare_queries(HostType) ->
         [<<"phone">>, <<"last7">>, <<"server">>, <<"username">>],
         [<<"username">>],
         [<<"phone">>, <<"server">>]),
-
-    mongoose_rdbms:prepare(phone_contacts_get_by_user, phone_contacts,
-        [server, username],
-        <<"SELECT phone FROM phone_contacts WHERE server = ? AND username = ?">>),
-
-    mongoose_rdbms:prepare(phone_contacts_delete_user, phone_contacts,
-        [server, username],
-        <<"DELETE FROM phone_contacts WHERE server = ? AND username = ?">>),
 
     ok.
 

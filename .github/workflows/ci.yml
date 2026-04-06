@@ -344,11 +344,13 @@ jobs:
           DB_PASSWORD: ${{ secrets.MIM_DB_PASSWORD }}
           XMPP_HOST: ${{ secrets.MIM_XMPP_HOST }}
           JWT_PUBLIC_KEY: ${{ secrets.MIM_JWT_PUBLIC_KEY }}
+          TLS_CERT_PEM: ${{ secrets.MIM_TLS_CERT_PEM }}
+          TLS_KEY_PEM: ${{ secrets.MIM_TLS_KEY_PEM }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,XMPP_HOST,JWT_PUBLIC_KEY
+          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,XMPP_HOST,JWT_PUBLIC_KEY,TLS_CERT_PEM,TLS_KEY_PEM
           script: |
             export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
             cd /opt/MongooseIM99
@@ -369,6 +371,8 @@ jobs:
             [[ -z "$DB_PASSWORD" ]]    && MISSING="$MISSING DB_PASSWORD"
             [[ -z "$JWT_PUBLIC_KEY" ]] && MISSING="$MISSING JWT_PUBLIC_KEY"
             [[ -z "$XMPP_HOST" ]]      && MISSING="$MISSING XMPP_HOST"
+            [[ -z "$TLS_CERT_PEM" ]]   && MISSING="$MISSING TLS_CERT_PEM"
+            [[ -z "$TLS_KEY_PEM" ]]    && MISSING="$MISSING TLS_KEY_PEM"
             if [[ -n "$MISSING" ]]; then
               echo "❌ Missing required secrets:$MISSING"
               echo "   Set these in GitHub → Settings → Secrets and variables → Actions"
@@ -395,7 +399,9 @@ jobs:
               MIM_DB_USER="${DB_USER}" \
               MIM_DB_PASSWORD="${DB_PASSWORD}" \
               MIM_XMPP_HOST="${XMPP_HOST}" \
-              MIM_JWT_PUBLIC_KEY="${JWT_PUBLIC_KEY}"
+              MIM_JWT_PUBLIC_KEY="${JWT_PUBLIC_KEY}" \
+              MIM_TLS_CERT_PEM="${TLS_CERT_PEM}" \
+              MIM_TLS_KEY_PEM="${TLS_KEY_PEM}"
             echo "✅ Secrets injected as env vars"
 
             # ✅ Deploy new image via Helm (only image changes, secrets stay as env vars)
