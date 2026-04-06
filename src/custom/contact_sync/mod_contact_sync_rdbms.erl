@@ -72,11 +72,9 @@ get_user_phone(HostType, LServer, LUser) ->
 -spec remove_user(mongooseim:host_type(), jid:luser(), jid:lserver()) ->
     ok | {error, term()}.
 remove_user(HostType, LUser, LServer) ->
-    case mongoose_rdbms:execute_successfully(HostType, phone_contacts_delete_user,
-                                              [LServer, LUser]) of
-        {updated, _} -> ok;
-        {error, Reason} -> {error, Reason}
-    end.
+    _ = mongoose_rdbms:execute_successfully(HostType, phone_contacts_delete_user,
+                                            [LServer, LUser]),
+    ok.
 
 %%%----------------------------------------------------------------------
 %%% Internal helpers
