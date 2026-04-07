@@ -76,13 +76,35 @@ awk '
 	}
 ' "$MIM_CONF" > /tmp/mim_conf_tmp && mv /tmp/mim_conf_tmp "$MIM_CONF" || true
 
-# Remove auth.internal if exists to avoid duplicates before re-adding it.
-sed -i '/^[[:space:]]*\[auth\.internal\][[:space:]]*$/d' "$MIM_CONF" || true
-
-# Add auth.internal right after [auth] section.
-if ! grep -q '^[[:space:]]*\[auth\.internal\][[:space:]]*$' "$MIM_CONF"; then
-	sed -i '/^[[:space:]]*\[auth\][[:space:]]*$/a\[auth.internal]' "$MIM_CONF" || true
-fi
+# Force internal auth method in [auth] without changing table boundaries.
+awk '
+	BEGIN { in_auth = 0; methods_replaced = 0 }
+	{
+		if ($0 ~ /^[[:space:]]*\[auth\][[:space:]]*$/) {
+			in_auth = 1
+			print
+			next
+		}
+		if (in_auth && $0 ~ /^[[:space:]]*\[/ && $0 !~ /^[[:space:]]*\[auth\][[:space:]]*$/) {
+			if (!methods_replaced) {
+				print "  methods = [\"internal\"]"
+				methods_replaced = 1
+			}
+			in_auth = 0
+		}
+		if (in_auth && $0 ~ /^[[:space:]]*methods[[:space:]]*=/) {
+			print "  methods = [\"internal\"]"
+			methods_replaced = 1
+			next
+		}
+		print
+	}
+	END {
+		if (in_auth && !methods_replaced) {
+			print "  methods = [\"internal\"]"
+		}
+	}
+' "$MIM_CONF" > /tmp/mim_conf_tmp && mv /tmp/mim_conf_tmp "$MIM_CONF" || true
 
 # Remove entire RDBMS outgoing pool section.
 awk '
