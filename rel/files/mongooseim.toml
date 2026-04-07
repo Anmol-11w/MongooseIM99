@@ -133,9 +133,6 @@
   {{#cyrsasl_external}}
   sasl_external = [{{{cyrsasl_external}}}]
   {{/cyrsasl_external}}
-  {{#auth_methods}}
-  methods = [{{{auth_methods}}}]
-  {{/auth_methods}}
   {{#sasl_mechanisms}}
   sasl_mechanisms = [{{{sasl_mechanisms}}}]
   {{/sasl_mechanisms}}
@@ -144,19 +141,12 @@
   [auth.password]
     {{{auth_password_opts}}}
   {{/auth_password_opts}}
-  {{#jwt_auth_opts}}
-
-  [auth.jwt]
-    {{{jwt_auth_opts}}}
-  {{/jwt_auth_opts}}
-  {{^jwt_auth_opts}}
   {{#auth_method}}
 
   # methods
   [auth.{{{auth_method}}}]{{#auth_method_opts}}
     {{{auth_method_opts}}}{{/auth_method_opts}}
   {{/auth_method}}
-  {{/jwt_auth_opts}}
 
 {{{internal_databases}}}
 
