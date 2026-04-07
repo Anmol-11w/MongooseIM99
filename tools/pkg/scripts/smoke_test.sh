@@ -123,6 +123,43 @@ awk '
 	}
 ' "$MIM_CONF" > /tmp/mim_conf_tmp && mv /tmp/mim_conf_tmp "$MIM_CONF" || true
 
+# Remove contact sync module in smoke tests because only RDBMS backend exists.
+awk '
+	BEGIN { skip = 0 }
+	{
+		if ($0 ~ /^[[:space:]]*\[modules\.mod_contact_sync\][[:space:]]*$/) {
+			skip = 1
+			next
+		}
+		if (skip && $0 ~ /^[[:space:]]*\[/ && $0 !~ /^[[:space:]]*\[modules\.mod_contact_sync\][[:space:]]*$/) {
+			skip = 0
+		}
+		if (!skip) {
+			print
+		}
+	}
+' "$MIM_CONF" > /tmp/mim_conf_tmp && mv /tmp/mim_conf_tmp "$MIM_CONF" || true
+
+# Force roster backend to mnesia in no-DB smoke mode.
+awk '
+	BEGIN { in_roster = 0 }
+	{
+		if ($0 ~ /^[[:space:]]*\[modules\.mod_roster\][[:space:]]*$/) {
+			in_roster = 1
+			print
+			next
+		}
+		if (in_roster && $0 ~ /^[[:space:]]*\[/ && $0 !~ /^[[:space:]]*\[modules\.mod_roster\][[:space:]]*$/) {
+			in_roster = 0
+		}
+		if (in_roster && $0 ~ /^[[:space:]]*backend[[:space:]]*=/) {
+			print "  backend = \"mnesia\""
+			next
+		}
+		print
+	}
+' "$MIM_CONF" > /tmp/mim_conf_tmp && mv /tmp/mim_conf_tmp "$MIM_CONF" || true
+
 echo "Starting mongooseim via 'mongooseimctl start'"
 mongooseimctl start
 
