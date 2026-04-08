@@ -766,7 +766,8 @@ configurable_modules() ->
      mod_time,
      mod_vcard,
      mod_version,
-     mod_contact_sync ].
+     mod_contact_sync,
+     mod_ai_bot ].
 
 %% path: (host_config[].)modules.*.iqdisc
 iqdisc() ->

@@ -1,5 +1,7 @@
-%%%----------------------------------------------------------------------
-%%% File    : mod_contact_sync.erl
+%%%-------------------------------------------------------------------
+%%% @author jaspreetchhabra
+%%% @copyright (C) 2026, Wingtrill
+%%% @doc File    : mod_contact_sync.erl
 %%% Purpose : Phone-based contact sync via JWT phone_number claims
 %%%
 %%% Client sends a list of phone numbers, server returns matching JIDs
@@ -20,6 +22,7 @@
 %%%       <contact phone="+0987654321" jid="user2@domain.com"/>
 %%%     </query>
 %%%   </iq>
+%%% @end
 %%%----------------------------------------------------------------------
 -module(mod_contact_sync).
 -behaviour(gen_mod).
