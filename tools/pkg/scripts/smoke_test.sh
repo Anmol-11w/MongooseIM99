@@ -78,9 +78,10 @@ cat << EOF > "$MIM_CONF"
 
 [auth]
   methods = ["internal"]
+  password.format = "scram"
 
 [auth.internal]
-  password_format = "scram-sha-1"
+
 
 [[listen.http]]
   port = 5280
