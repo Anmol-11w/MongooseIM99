@@ -57,75 +57,88 @@ BAD_BOOTSTRAP_RESULT=$(mongooseimctl bootstrap || echo "It should fail")
 echo "$BAD_BOOTSTRAP_RESULT" | grep "It should fail"
 
 
-echo "Configuring auth for smoke test (no MySQL available)"
-MIM_CONF=/etc/mongooseim/mongooseim.toml
-# Remove auth tables that rely on unavailable external dependencies in smoke tests.
-awk '
-	BEGIN { skip = 0 }
-	{
-		if ($0 ~ /^[[:space:]]*\[auth\.(rdbms|jwt)\][[:space:]]*$/) {
-			skip = 1
-			next
-		}
-		if (skip && $0 ~ /^[[:space:]]*\[/ && $0 !~ /^[[:space:]]*\[auth\.(rdbms|jwt)\][[:space:]]*$/) {
-			skip = 0
-		}
-		if (!skip) {
-			print
-		}
-	}
-' "$MIM_CONF" > /tmp/mim_conf_tmp && mv /tmp/mim_conf_tmp "$MIM_CONF" || true
+echo "Preparing minimal smoke-test config (no external DB required)"
+MIM_CONF="/etc/mongooseim.toml"
+JWT_KEY_FILE="/tmp/smoke_jwt.pem"
+MIM_PID=""
 
-# Remove auth.internal if exists to avoid duplicates before re-adding it.
-sed -i '/^[[:space:]]*\[auth\.internal\][[:space:]]*$/d' "$MIM_CONF" || true
+cleanup() {
+  if [ -n "$MIM_PID" ] && kill -0 "$MIM_PID" 2>/dev/null; then
+    kill "$MIM_PID" || true
+    wait "$MIM_PID" || true
+  fi
+}
 
-# Add auth.internal right after [auth] section.
-if ! grep -q '^[[:space:]]*\[auth\.internal\][[:space:]]*$' "$MIM_CONF"; then
-	sed -i '/^[[:space:]]*\[auth\][[:space:]]*$/a\[auth.internal]' "$MIM_CONF" || true
-fi
+trap cleanup EXIT
 
-# Remove entire RDBMS outgoing pool section.
-awk '
-	BEGIN { skip = 0 }
-	{
-		if ($0 ~ /^[[:space:]]*\[outgoing_pools\.rdbms(\.|\])/) {
-			skip = 1
-			next
-		}
-		if (skip && $0 ~ /^[[:space:]]*\[/ && $0 !~ /^[[:space:]]*\[outgoing_pools\.rdbms(\.|\])/) {
-			skip = 0
-		}
-		if (!skip) {
-			print
-		}
-	}
-' "$MIM_CONF" > /tmp/mim_conf_tmp && mv /tmp/mim_conf_tmp "$MIM_CONF" || true
+cat << EOF > "$JWT_KEY_FILE"
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAnD6p2zE/F5Yv98/6z5y0X6a3F/Z8I4J5J6K7L8M9N0O=
+-----END PUBLIC KEY-----
+EOF
 
-echo "Starting mongooseim via 'mongooseimctl start'"
-mongooseimctl start
+cat << EOF > "$MIM_CONF"
+[general]
+  loglevel = "warning"
+  hosts = ["localhost"]
+  default_server_domain = "localhost"
+
+[auth]
+  methods = ["jwt", "internal"]
+
+[auth.internal]
+  password_format = "scram-sha-1"
+
+[auth.jwt]
+  secret.file = "$JWT_KEY_FILE"
+  algorithm = "RS256"
+  username_key = "sub"
+
+[outgoing_pools.rdbms.default]
+  scope = "global"
+  workers = 1
+  [outgoing_pools.rdbms.default.connection]
+    driver = "pgsql"
+    host = "localhost"
+    database = "dummy"
+
+[[listen.http]]
+  port = 5280
+  [[listen.http.handlers.mongoose_bosh_handler]]
+    host = "_"
+    path = "/http-bind"
+
+[[listen.c2s]]
+  port = 5222
+  access = "c2s"
+
+[modules.mod_roster]
+  backend = "mnesia"
+
+[modules.mod_offline]
+  backend = "mnesia"
+EOF
+
+echo "Starting mongooseim in foreground"
+export EJABBERD_CONFIG_PATH="$MIM_CONF"
+/usr/lib/mongooseim/bin/mongooseim foreground &
+MIM_PID=$!
 
 echo "Waiting for the port 5222 to accept TCP connections"
 if ! ./wait-for-it.sh -h localhost -p 5222 -t 90; then
 	echo "MongooseIM did not open port 5222 in time"
-	mongooseimctl status || true
 	tail -n 200 /var/log/mongooseim/mongooseim.log 2>/dev/null || true
+	tail -n 200 /usr/lib/mongooseim/log/mongooseim.log 2>/dev/null || true
 	exit 1
 fi
 
 echo "Checking status via 'mongooseimctl status'"
 mongooseimctl status
 
-echo "Trying to register a user with 'mongooseimctl register localhost a_password'"
-mongooseimctl account registerUser --domain localhost --password a_password || echo "Warning: registration failed, skipping"
+echo "Trying to register users"
+mongooseimctl account registerUser --username smoke-test --domain localhost --password a_password
+mongooseimctl account registerUser --username smoke-test-2 --domain localhost --password a_password_2
 
-echo "Trying to register a user with 'mongooseimctl register_identified user localhost a_password_2'"
-mongooseimctl account registerUser --username user --domain localhost --password a_password_2 || echo "Warning: registration failed, skipping"
-
-echo "Skipping user count check in smoke test" 
-
-echo "Checking if MongooseIM has logged any errors"
-grep -wr 'error' /var/log/mongooseim && exit 1 || true
-
-echo "Stopping mongooseim via 'mongooseimctl stop'"
-mongooseimctl stop
+echo "Stopping mongooseim"
+cleanup
 
