@@ -58,8 +58,7 @@ echo "$BAD_BOOTSTRAP_RESULT" | grep "It should fail"
 
 
 echo "Preparing minimal smoke-test config (no external DB required)"
-MIM_CONF="/etc/mongooseim.toml"
-JWT_KEY_FILE="/tmp/smoke_jwt.pem"
+MIM_CONF="/etc/mongooseim/mongooseim.toml"
 MIM_PID=""
 
 cleanup() {
@@ -71,12 +70,6 @@ cleanup() {
 
 trap cleanup EXIT
 
-cat << EOF > "$JWT_KEY_FILE"
------BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAnD6p2zE/F5Yv98/6z5y0X6a3F/Z8I4J5J6K7L8M9N0O=
------END PUBLIC KEY-----
-EOF
-
 cat << EOF > "$MIM_CONF"
 [general]
   loglevel = "warning"
@@ -84,23 +77,10 @@ cat << EOF > "$MIM_CONF"
   default_server_domain = "localhost"
 
 [auth]
-  methods = ["jwt", "internal"]
+  methods = ["internal"]
 
 [auth.internal]
   password_format = "scram-sha-1"
-
-[auth.jwt]
-  secret.file = "$JWT_KEY_FILE"
-  algorithm = "RS256"
-  username_key = "sub"
-
-[outgoing_pools.rdbms.default]
-  scope = "global"
-  workers = 1
-  [outgoing_pools.rdbms.default.connection]
-    driver = "pgsql"
-    host = "localhost"
-    database = "dummy"
 
 [[listen.http]]
   port = 5280
@@ -120,7 +100,6 @@ cat << EOF > "$MIM_CONF"
 EOF
 
 echo "Starting mongooseim in foreground"
-export EJABBERD_CONFIG_PATH="$MIM_CONF"
 /usr/lib/mongooseim/bin/mongooseim foreground &
 MIM_PID=$!
 
