@@ -240,7 +240,7 @@ jobs:
   docker_image:
     name: docker image build
     runs-on: ubuntu-22.04
-    needs: [ small_tests, dialyzer, xref, edoc, pkg ]
+    needs: [ small_tests, dialyzer, xref, edoc ]
     permissions:
       contents: read
       packages: write

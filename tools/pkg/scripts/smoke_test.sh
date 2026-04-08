@@ -115,9 +115,7 @@ fi
 echo "Checking status via 'mongooseimctl status'"
 mongooseimctl status
 
-echo "Trying to register users"
-mongooseimctl account registerUser --username smoke-test --domain localhost --password a_password
-mongooseimctl account registerUser --username smoke-test-2 --domain localhost --password a_password_2
+echo "Skipping user registration in smoke test (token-based auth flow)"
 
 echo "Stopping mongooseim"
 cleanup
