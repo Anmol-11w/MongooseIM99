@@ -41,6 +41,10 @@ RUN apt-get update \
     && groupadd --system mongooseim \
     && useradd --system --gid mongooseim --home-dir /var/lib/mongooseim --shell /usr/sbin/nologin mongooseim
 
+# --- FIX: Permissions after user creation ---
+# We touch the file and ensure the user owns it so the K8s awk script can rewrite it.
+RUN touch /etc/mongooseim.toml && chown mongooseim:mongooseim /etc/mongooseim.toml
+
 COPY --from=builder /etc/mongooseim /etc/mongooseim
 COPY --from=builder /usr/bin/mongooseimctl /usr/bin/mongooseimctl
 COPY --from=builder /usr/lib/mongooseim /usr/lib/mongooseim
@@ -50,17 +54,22 @@ COPY --from=builder /var/lock/mongooseim /var/lock/mongooseim
 
 RUN chown -R mongooseim:mongooseim /var/lib/mongooseim /var/log/mongooseim /var/lock/mongooseim
 
+# Create the symlink for your K8s logic
 RUN ln -sf /etc/mongooseim/mongooseim.toml /etc/mongooseim.toml
 
 ENV EJABBERD_CONFIG_PATH=/etc/mongooseim.toml
 
 WORKDIR /usr/lib/mongooseim
 
+# Standard MongooseIM ports
 EXPOSE 5222 5269 5280 5285 5541 5551 5561 8088 8089 8888 9091
 
 VOLUME ["/var/lib/mongooseim", "/var/log/mongooseim"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
   CMD ["/usr/lib/mongooseim/bin/mongooseim", "ping"]
+
+# Set user to non-root for security compliance
+USER mongooseim
 
 CMD ["/usr/lib/mongooseim/bin/mongooseim", "foreground"]
