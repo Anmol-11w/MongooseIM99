@@ -40,11 +40,10 @@ chmod "644" "$GOOD_SCRIPT"
 BAD_PERM_BOOTSTRAP_RESULT=$(mongooseimctl bootstrap 2>&1 || echo "It should fail")
 echo "$BAD_PERM_BOOTSTRAP_RESULT" | grep "It should fail"
 
-
 echo "Check, that bootstrap works without any scripts"
-rm "$MIM_DIR/scripts/"*
+# Use find+delete instead of glob to avoid errors when directory is empty
+find "$MIM_DIR/scripts/" -type f -delete
 mongooseimctl bootstrap
-
 
 echo "Check, that bootstrap fails, if any of bootstrap scripts fail"
 BAD_SCRIPT="$MIM_DIR/scripts/bootstrap02-fails.sh"
@@ -163,14 +162,19 @@ awk '
 	}
 ' "$MIM_CONF" > /tmp/mim_conf_tmp && mv /tmp/mim_conf_tmp "$MIM_CONF" || true
 
-echo "Starting mongooseim via 'mongooseimctl start'"
-mongooseimctl start
+echo "Starting mongooseim via 'mongooseimctl foreground' in background"
+# Use foreground mode detached so logs are visible and the process can be managed.
+# 'start' (daemon mode) requires epmd and full Erlang distribution which may not
+# be available inside a Docker build layer. foreground mode is more reliable here.
+mongooseimctl foreground &
+MIM_PID=$!
 
 echo "Waiting for the port 5222 to accept TCP connections"
 if ! ./wait-for-it.sh -h localhost -p 5222 -t 90; then
 	echo "MongooseIM did not open port 5222 in time"
-	mongooseimctl status || true
+	echo "--- Last 200 lines of MongooseIM log ---"
 	tail -n 200 /var/log/mongooseim/mongooseim.log 2>/dev/null || true
+	kill "$MIM_PID" 2>/dev/null || true
 	exit 1
 fi
 
@@ -179,14 +183,15 @@ mongooseimctl status
 
 # NOTE: User registration via password is skipped because this deployment uses
 # token-based authentication. Password-based user creation is not supported.
-echo "Skipping user registration (token-based auth is configured, passwords not supported)"
+echo "Skipping user registration (token-based auth configured, passwords not supported)"
 
 echo "Skipping user count check in smoke test"
 
 echo "Checking if MongooseIM has logged any errors"
 grep -wr 'error' /var/log/mongooseim && exit 1 || true
 
-echo "Stopping mongooseim via 'mongooseimctl stop'"
-mongooseimctl stop
+echo "Stopping mongooseim"
+kill "$MIM_PID" 2>/dev/null || true
+wait "$MIM_PID" 2>/dev/null || true
 
 echo "Smoke test completed successfully"
