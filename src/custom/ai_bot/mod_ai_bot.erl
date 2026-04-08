@@ -4,7 +4,7 @@
 %%% @doc AI chatbot module for MongooseIM.
 %%%
 %%% Intercepts messages sent to a configured bot JID and forwards them
-%%% to a configurable AI provider (Claude, OpenAI/ChatGPT, or Gemini)
+%%% to a configurable AI provider (Claude, OpenAI/ChatGPT, Gemini, or Groq)
 %%% via a managed HTTP pool. Replies are routed back to the sender as
 %%% regular chat messages.
 %%%
@@ -62,7 +62,7 @@ config_spec() ->
     #section{
         items = #{
             <<"provider">> => #option{type = atom,
-                                      validate = {enum, [claude, openai, gemini]}},
+                                      validate = {enum, [claude, openai, gemini, groq]}},
             <<"pool_tag">> => #option{type = atom, validate = pool_name},
             <<"bot_username">> => #option{type = binary},
             <<"api_key">> => #option{type = binary},
@@ -200,6 +200,22 @@ build_request(openai, ApiKey, Model, MaxTokens, SystemPrompt, UserMessage) ->
     }),
     {Path, Headers, Payload};
 
+build_request(groq, ApiKey, Model, MaxTokens, SystemPrompt, UserMessage) ->
+    Path = <<"/chat/completions">>,
+    Headers = [
+        {<<"authorization">>, <<"Bearer ", ApiKey/binary>>},
+        {<<"content-type">>, <<"application/json">>}
+    ],
+    Payload = jiffy:encode(#{
+        <<"model">> => Model,
+        <<"max_tokens">> => MaxTokens,
+        <<"messages">> => [
+            #{<<"role">> => <<"system">>, <<"content">> => SystemPrompt},
+            #{<<"role">> => <<"user">>, <<"content">> => UserMessage}
+        ]
+    }),
+    {Path, Headers, Payload};
+
 build_request(gemini, ApiKey, Model, _MaxTokens, SystemPrompt, UserMessage) ->
     Path = <<"/models/", Model/binary, ":generateContent?key=", ApiKey/binary>>,
     Headers = [
@@ -239,6 +255,9 @@ parse_response_body(claude, #{<<"content">> := Content}) ->
 
 parse_response_body(openai, #{<<"choices">> := [#{<<"message">> := #{<<"content">> := Text}} | _]}) ->
     {ok, Text};
+
+parse_response_body(groq, Response) ->
+    parse_response_body(openai, Response);
 
 parse_response_body(gemini, #{<<"candidates">> := [#{<<"content">> := #{<<"parts">> := Parts}} | _]}) ->
     Texts = [T || #{<<"text">> := T} <- Parts],
