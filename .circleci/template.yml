@@ -1106,6 +1106,9 @@ workflows:
           context: mongooseim-org
           requires:
 
+            - ubuntu-jammy
+            - ubuntu-jammy-arm64
+
             - small_tests_legacy
             - ldap_mnesia_legacy
             - pgsql_mnesia_legacy
