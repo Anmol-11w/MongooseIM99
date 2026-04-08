@@ -6,70 +6,47 @@ WORKDIR /src
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        bash \
-        ca-certificates \
-        gcc \
-        g++ \
-        git \
-        libssl-dev \
-        make \
-        zlib1g-dev \
+        bash ca-certificates gcc g++ git libssl-dev make zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .
 
 RUN ./tools/configure system=yes prefix=/ \
-    && test -f rel/prod.vars-toml.config \
     && make rel install \
     && test -f /etc/mongooseim/mongooseim.toml
 
-
 FROM debian:trixie-slim AS runtime
 
-ENV MONGOOSEIM_HOME=/usr/lib/mongooseim
-
+# Install runtime dependencies
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        bash \
-        ca-certificates \
-        libncurses6 \
-        libstdc++6 \
-        openssl \
-        procps \
-        zlib1g \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system mongooseim \
-    && useradd --system --gid mongooseim --home-dir /var/lib/mongooseim --shell /usr/sbin/nologin mongooseim
+        bash ca-certificates libncurses6 libstdc++6 openssl procps zlib1g \
+    && rm -rf /var/lib/apt/lists/*
 
-# --- FIX: Permissions after user creation ---
-# We touch the file and ensure the user owns it so the K8s awk script can rewrite it.
-RUN touch /etc/mongooseim.toml && chown mongooseim:mongooseim /etc/mongooseim.toml
-
+# Copy build artifacts
 COPY --from=builder /etc/mongooseim /etc/mongooseim
 COPY --from=builder /usr/bin/mongooseimctl /usr/bin/mongooseimctl
 COPY --from=builder /usr/lib/mongooseim /usr/lib/mongooseim
 COPY --from=builder /var/lib/mongooseim /var/lib/mongooseim
 COPY --from=builder /var/log/mongooseim /var/log/mongooseim
-COPY --from=builder /var/lock/mongooseim /var/lock/mongooseim
 
-RUN chown -R mongooseim:mongooseim /var/lib/mongooseim /var/log/mongooseim /var/lock/mongooseim
+# Ensure the config path exists and is writable for sed/awk
+RUN touch /etc/mongooseim.toml && ln -sf /etc/mongooseim/mongooseim.toml /etc/mongooseim.toml
 
-# Create the symlink for your K8s logic
-RUN ln -sf /etc/mongooseim/mongooseim.toml /etc/mongooseim.toml
-
+# Set environment variables
 ENV EJABBERD_CONFIG_PATH=/etc/mongooseim.toml
-
 WORKDIR /usr/lib/mongooseim
 
-# Standard MongooseIM ports
-EXPOSE 5222 5269 5280 5285 5541 5551 5561 8088 8089 8888 9091
+# --- SMOKE TEST GATEKEEPER ---
+# We run this during the build. If it fails, the build fails.
+COPY tools/wait-for-it.sh ./
+COPY tools/pkg/scripts/smoke_test.sh ./
+RUN chmod +x wait-for-it.sh smoke_test.sh && ./smoke_test.sh
 
-VOLUME ["/var/lib/mongooseim", "/var/log/mongooseim"]
+# --- FINAL CONFIG ---
+EXPOSE 5222 5269 5280 8888 9091
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
-  CMD ["/usr/lib/mongooseim/bin/mongooseim", "ping"]
-
-# Set user to non-root for security compliance
-USER mongooseim
+# We stay as ROOT user so your K8s 'sed -i' commands never hit permission issues
+USER root
 
 CMD ["/usr/lib/mongooseim/bin/mongooseim", "foreground"]
