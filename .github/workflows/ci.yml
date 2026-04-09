@@ -411,7 +411,7 @@ jobs:
             echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
             helm upgrade --install mim ./helm/mongooseim \
               --namespace "$MIM_NS" \
-              --reuse-values \
+              --reset-values \
               --set image.repository="ghcr.io/anmol-11w/mongooseim99" \
               --set image.tag="sha-${SHORT_SHA}" \
               --set image.pullPolicy="Always"
@@ -423,6 +423,14 @@ jobs:
             echo "⏳ Waiting for rollout to complete..."
             kubectl rollout status deployment/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s
             echo "✅ Rollout complete"
+
+            # ✅ Ensure config is sourced from the image, not a mounted ConfigMap override
+            if kubectl get deployment/${APP_DEPLOY} -n "$MIM_NS" -o yaml | grep -q "subPath: mongooseim.toml"; then
+              echo "❌ FAILED: detected ConfigMap subPath override for mongooseim.toml"
+              echo "   Deployment must use /etc/mongooseim/mongooseim.toml from the image build"
+              exit 1
+            fi
+            echo "✅ Config source verified — no mongooseim.toml subPath override"
 
             # ✅ Verify JWT-only auth in the runtime config inside the pod
             echo ""

@@ -42,7 +42,9 @@ spec:
             - -ec
             - |
               set -e
-              CONF="/etc/mongooseim.toml"
+              # Use the rendered config from the release image directly.
+              # This avoids legacy single-file overrides mounted at /etc/mongooseim.toml.
+              CONF="/etc/mongooseim/mongooseim.toml"
               JWT_KEY_FILE="/var/lib/mongooseim/jwt_public_key.pem"
               sanitize_single_line() {
                 printf '%s' "$1" | tr -d '\r\n'
