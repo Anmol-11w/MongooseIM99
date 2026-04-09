@@ -424,13 +424,31 @@ jobs:
             kubectl rollout status deployment/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s
             echo "✅ Rollout complete"
 
-            # ✅ Ensure config is sourced from the image, not a mounted ConfigMap override
+            # ✅ Verify config source path in running pod
             if kubectl get deployment/${APP_DEPLOY} -n "$MIM_NS" -o yaml | grep -q "subPath: mongooseim.toml"; then
               echo "❌ FAILED: detected ConfigMap subPath override for mongooseim.toml"
               echo "   Deployment must use /etc/mongooseim/mongooseim.toml from the image build"
               exit 1
             fi
-            echo "✅ Config source verified — no mongooseim.toml subPath override"
+
+            POD_NAME="$(kubectl get pods -n "$MIM_NS" -o name \
+              | grep "^pod/${APP_DEPLOY}-" \
+              | head -n1 \
+              | cut -d/ -f2)"
+            if [[ -z "$POD_NAME" ]]; then
+              echo "❌ FAILED: could not find mongooseim pod to verify config source"
+              exit 1
+            fi
+
+            if ! kubectl exec "$POD_NAME" -n "$MIM_NS" -c mongooseim -- sh -ec '
+              CONF_SRC="/etc/mongooseim/mongooseim.toml"
+              [ -f "$CONF_SRC" ] || exit 1
+              grep -Eq "^\[modules\.mod_ai_bot\]" "$CONF_SRC"
+            '; then
+              echo "❌ FAILED: /etc/mongooseim/mongooseim.toml missing or does not include mod_ai_bot"
+              exit 1
+            fi
+            echo "✅ Config source verified — /etc/mongooseim/mongooseim.toml is present"
 
             # ✅ Verify JWT-only auth in the runtime config inside the pod
             echo ""

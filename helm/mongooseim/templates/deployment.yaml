@@ -42,9 +42,7 @@ spec:
             - -ec
             - |
               set -e
-              # Read config from release image path and copy it to a writable file.
-              # Some clusters mount /etc/mongooseim/mongooseim.toml via subPath,
-              # which makes in-place edits (sed -i / mv) fail with "resource busy".
+              # Read config rendered into the image from rel/files/mongooseim.toml.
               CONF_SRC="/etc/mongooseim/mongooseim.toml"
               CONF="/var/lib/mongooseim/etc/mongooseim.toml"
               JWT_KEY_FILE="/var/lib/mongooseim/jwt_public_key.pem"
