@@ -461,10 +461,12 @@ jobs:
               exit 1
             fi
 
-            POD_NAME="$(kubectl get pods -n "$MIM_NS" -o name \
-              | grep "^pod/${APP_DEPLOY}-" \
-              | head -n1 \
-              | cut -d/ -f2)"
+            APP_SELECTOR="$(kubectl get deployment/${APP_DEPLOY} -n "$MIM_NS" \
+              -o jsonpath='{range $k,$v := .spec.selector.matchLabels}{$k}={$v},{end}' \
+              | sed 's/,$//')"
+            POD_NAME="$(kubectl get pods -n "$MIM_NS" -l "$APP_SELECTOR" \
+              -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\n"}{end}' \
+              | head -n1)"
             if [[ -z "$POD_NAME" ]]; then
               echo "❌ FAILED: could not find mongooseim pod to verify config source"
               exit 1
@@ -484,7 +486,7 @@ jobs:
             # ✅ Verify JWT-only auth in the runtime config inside the pod
             echo ""
             echo "🔍 Verifying JWT-only auth policy in runtime config..."
-            kubectl exec deployment/${APP_DEPLOY} -n "$MIM_NS" -c mongooseim -- sh -ec '
+            kubectl exec "$POD_NAME" -n "$MIM_NS" -c mongooseim -- sh -ec '
               CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
 
               if [ ! -f "$CONF" ]; then
@@ -532,7 +534,7 @@ jobs:
             # ✅ Verify DB config has no hardcoded fallback values
             echo ""
             echo "🔍 Verifying DB config has no hardcoded values..."
-            kubectl exec deployment/${APP_DEPLOY} -n "$MIM_NS" -c mongooseim -- sh -ec '
+            kubectl exec "$POD_NAME" -n "$MIM_NS" -c mongooseim -- sh -ec '
               CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
 
               if [ ! -f "$CONF" ]; then
@@ -560,7 +562,7 @@ jobs:
             # ✅ Verify AI bot API key is injected from secret (not hardcoded in template)
             echo ""
             echo "🔍 Verifying AI bot API key is injected from environment secret..."
-            kubectl exec deployment/${APP_DEPLOY} -n "$MIM_NS" -c mongooseim -- sh -ec '
+            kubectl exec "$POD_NAME" -n "$MIM_NS" -c mongooseim -- sh -ec '
               CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
 
               if [ ! -f "$CONF" ]; then
