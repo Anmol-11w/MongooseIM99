@@ -461,14 +461,15 @@ jobs:
               exit 1
             fi
 
-            APP_SELECTOR="$(kubectl get deployment/${APP_DEPLOY} -n "$MIM_NS" \
-              -o jsonpath='{range $k,$v := .spec.selector.matchLabels}{$k}={$v},{end}' \
-              | sed 's/,$//')"
-            POD_NAME="$(kubectl get pods -n "$MIM_NS" -l "$APP_SELECTOR" \
-              -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\n"}{end}' \
-              | head -n1)"
+            POD_NAME="$(kubectl get pods -n "$MIM_NS" --field-selector=status.phase=Running -o name \
+              | grep "^pod/${APP_DEPLOY}-" \
+              | grep -v "^pod/${APP_DEPLOY}-redis-" \
+              | grep -v "^pod/${APP_DEPLOY}-postgresql-" \
+              | head -n1 \
+              | cut -d/ -f2 || true)"
             if [[ -z "$POD_NAME" ]]; then
               echo "❌ FAILED: could not find mongooseim pod to verify config source"
+              kubectl get pods -n "$MIM_NS" -o wide || true
               exit 1
             fi
 
