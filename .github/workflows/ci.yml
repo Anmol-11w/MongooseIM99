@@ -444,11 +444,12 @@ jobs:
               CONF_SRC="/etc/mongooseim/mongooseim.toml"
               [ -f "$CONF_SRC" ] || exit 1
               grep -Eq "^\[modules\.mod_ai_bot\]" "$CONF_SRC"
+              grep -Eq "^\[modules\.mod_ai_bot_voice\]" "$CONF_SRC"
             '; then
-              echo "❌ FAILED: /etc/mongooseim/mongooseim.toml missing or does not include mod_ai_bot"
+              echo "❌ FAILED: source config missing or does not include AI bot modules"
               exit 1
             fi
-            echo "✅ Config source verified — /etc/mongooseim/mongooseim.toml is present"
+            echo "✅ Config source verified — /etc/mongooseim/mongooseim.toml includes AI bot modules"
 
             # ✅ Verify JWT-only auth in the runtime config inside the pod
             echo ""

@@ -111,11 +111,26 @@ spec:
               fi
 
               # =========================================================
-              # STEP 2: Patch AI bot API keys from environment secret (optional)
+              # STEP 2: Ensure source contains AI bot module sections
+              # =========================================================
+              if ! grep -Eq '^\[modules\.mod_ai_bot\]' "$CONF"; then
+                echo "❌ FATAL: [modules.mod_ai_bot] missing in source config"
+                echo "   Update rel/files/mongooseim.toml and deploy a new image"
+                exit 1
+              fi
+              if ! grep -Eq '^\[modules\.mod_ai_bot_voice\]' "$CONF"; then
+                echo "❌ FATAL: [modules.mod_ai_bot_voice] missing in source config"
+                echo "   Update rel/files/mongooseim.toml and deploy a new image"
+                exit 1
+              fi
+
+              # =========================================================
+              # STEP 3: Patch AI bot API keys from environment secret (optional)
               # =========================================================
               AI_BOT_API_KEY_CLEAN="$(sanitize_single_line "${MIM_AI_BOT_API_KEY:-}")"
               if [[ -n "$AI_BOT_API_KEY_CLEAN" ]]; then
                 echo "🤖 Injecting AI bot API key from MIM_AI_BOT_API_KEY"
+
                 AI_BOT_API_KEY_ESCAPED="$(escape_toml_string "$AI_BOT_API_KEY_CLEAN")"
                 awk -v api_key="$AI_BOT_API_KEY_ESCAPED" '
                   BEGIN { in_ai_bot = 0; in_ai_bot_voice = 0 }
@@ -133,7 +148,7 @@ spec:
               fi
 
               # =========================================================
-              # STEP 3: Replace entire [auth] block with clean JWT-only config
+              # STEP 4: Replace entire [auth] block with clean JWT-only config
               # =========================================================
               echo "🔐 Rewriting [auth] section for JWT-only authentication..."
               awk '
@@ -172,7 +187,7 @@ spec:
               echo "✅ [auth] rewritten — all password backends removed"
 
               # =========================================================
-              # STEP 4: Write JWT public key to file and inject [auth.jwt]
+              # STEP 5: Write JWT public key to file and inject [auth.jwt]
               # RSA public keys must be written to a file, not inline value
               # =========================================================
               if [[ -z "${MIM_JWT_PUBLIC_KEY:-}" ]]; then
@@ -193,7 +208,7 @@ spec:
 
               {{- if .Values.postgresqlBackend.enabled }}
               # =========================================================
-              # STEP 5: Wait for PostgreSQL and inject DB config
+              # STEP 6: Wait for PostgreSQL and inject DB config
               # =========================================================
               PG_HOST="${MIM_DB_HOST:-{{ .Values.postgresqlBackend.host }}}"
               PG_PORT="${MIM_DB_PORT:-{{ .Values.postgresqlBackend.port }}}"
@@ -229,7 +244,7 @@ spec:
 
               {{- if .Values.redisBackend.enabled }}
               # =========================================================
-              # STEP 6: Wait for Redis and inject Redis config
+              # STEP 7: Wait for Redis and inject Redis config
               # =========================================================
               REDIS_HOST="${MIM_REDIS_HOST:-{{ .Values.redisBackend.host }}}"
               REDIS_PORT="${MIM_REDIS_PORT:-{{ .Values.redisBackend.port }}}"
@@ -266,7 +281,7 @@ spec:
               {{- end }}
 
               # =========================================================
-              # STEP 7: Final verification before startup
+              # STEP 8: Final verification before startup
               # =========================================================
               echo ""
               echo "📋 Final auth config:"
