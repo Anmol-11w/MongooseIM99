@@ -353,6 +353,8 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,XMPP_HOST,JWT_PUBLIC_KEY,AI_BOT_API_KEY,TLS_CERT_PEM,TLS_KEY_PEM
           script: |
+            set -euo pipefail
+
             export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
             cd /opt/MongooseIM99
 
@@ -416,12 +418,40 @@ jobs:
               --set image.tag="sha-${SHORT_SHA}" \
               --set image.pullPolicy="Always"
 
+            # ✅ Self-heal legacy ConfigMap mount overriding /etc/mongooseim/mongooseim.toml
+            LEGACY_CFG_MOUNT_NAME="$(kubectl get deployment/${APP_DEPLOY} -n "$MIM_NS" \
+              -o jsonpath='{range .spec.template.spec.containers[?(@.name=="mongooseim")].volumeMounts[?(@.mountPath=="/etc/mongooseim/mongooseim.toml")]}{.name}{"\n"}{end}' \
+              | head -n1)"
+            if [[ -n "$LEGACY_CFG_MOUNT_NAME" ]]; then
+              echo "⚠️  Removing legacy config override mount '$LEGACY_CFG_MOUNT_NAME'"
+              kubectl patch deployment/${APP_DEPLOY} -n "$MIM_NS" --type strategic -p "
+              spec:
+                template:
+                  spec:
+                    containers:
+                    - name: mongooseim
+                      volumeMounts:
+                      - name: ${LEGACY_CFG_MOUNT_NAME}
+                        mountPath: /etc/mongooseim/mongooseim.toml
+                        subPath: mongooseim.toml
+                        \$patch: delete
+                    volumes:
+                    - name: ${LEGACY_CFG_MOUNT_NAME}
+                      \$patch: delete
+              "
+              echo "✅ Legacy config override removed"
+            fi
+
             # Force restart so new deployment.yaml startup script runs in pods
             echo "🔄 Restarting pods to apply new startup script..."
             kubectl rollout restart deployment/${APP_DEPLOY} -n "$MIM_NS"
 
             echo "⏳ Waiting for rollout to complete..."
-            kubectl rollout status deployment/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s
+            if ! kubectl rollout status deployment/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s; then
+              echo "❌ FAILED: rollout timed out"
+              kubectl get pods -n "$MIM_NS" -o wide || true
+              exit 1
+            fi
             echo "✅ Rollout complete"
 
             # ✅ Verify config source path in running pod
