@@ -77,14 +77,25 @@ cat << EOF > "$MIM_CONF"
   default_server_domain = "localhost"
 
 [auth]
-  methods = ["internal"]
-  password.format = "scram"
+  methods = ["jwt"]
+  sasl_mechanisms = ["plain"]
 
-[auth.internal]
+[auth.jwt]
+  secret.value = "smoke-jwt-secret"
+  algorithm = "HS256"
+  username_key = "user"
 
 
 [[listen.http]]
   port = 5280
+  transport.num_acceptors = 10
+  transport.max_connections = 1024
+
+  [[listen.http.handlers.mongoose_graphql_handler]]
+    host = "_"
+    path = "/api/graphql"
+    schema_endpoint = "user"
+
   [[listen.http.handlers.mongoose_bosh_handler]]
     host = "_"
     path = "/http-bind"
@@ -115,7 +126,60 @@ fi
 echo "Checking status via 'mongooseimctl status'"
 mongooseimctl status
 
-echo "Skipping user registration in smoke test (token-based auth flow)"
+echo "Checking JWT authentication via GraphQL user endpoint"
+
+jwt_b64url() {
+  openssl base64 -A | tr '+/' '-_' | tr -d '='
+}
+
+JWT_SECRET="smoke-jwt-secret"
+JWT_USER="smokeuser"
+JWT_NOW="$(date +%s)"
+JWT_EXP="$((JWT_NOW + 300))"
+
+JWT_HEADER='{"alg":"HS256","typ":"JWT"}'
+JWT_PAYLOAD="{\"user\":\"${JWT_USER}\",\"iat\":${JWT_NOW},\"nbf\":${JWT_NOW},\"exp\":${JWT_EXP}}"
+
+JWT_HEADER_B64="$(printf '%s' "$JWT_HEADER" | jwt_b64url)"
+JWT_PAYLOAD_B64="$(printf '%s' "$JWT_PAYLOAD" | jwt_b64url)"
+JWT_SIGNING_INPUT="${JWT_HEADER_B64}.${JWT_PAYLOAD_B64}"
+JWT_SIGNATURE_B64="$(printf '%s' "$JWT_SIGNING_INPUT" \
+  | openssl dgst -sha256 -hmac "$JWT_SECRET" -binary \
+  | jwt_b64url)"
+JWT_TOKEN="${JWT_SIGNING_INPUT}.${JWT_SIGNATURE_B64}"
+
+GRAPHQL_QUERY='{"query":"query { checkAuth { authStatus username } }"}'
+AUTH_RAW="${JWT_USER}@localhost:${JWT_TOKEN}"
+AUTH_HEADER="$(printf '%s' "$AUTH_RAW" | openssl base64 -A)"
+
+HTTP_RESPONSE="$({
+  exec 3<>/dev/tcp/localhost/5280
+  printf 'POST /api/graphql HTTP/1.1\r\nHost: localhost\r\nAuthorization: Basic %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s' \
+    "$AUTH_HEADER" "${#GRAPHQL_QUERY}" "$GRAPHQL_QUERY" >&3
+  cat <&3
+  exec 3<&-
+  exec 3>&-
+} || true)"
+
+if ! printf '%s' "$HTTP_RESPONSE" | head -n1 | grep -q ' 200 '; then
+  echo "JWT auth check failed: expected HTTP 200 from /api/graphql"
+  printf '%s\n' "$HTTP_RESPONSE" | head -n 40
+  exit 1
+fi
+
+if ! printf '%s' "$HTTP_RESPONSE" | grep -q '"authStatus":"AUTHORIZED"'; then
+  echo "JWT auth check failed: expected authStatus AUTHORIZED"
+  printf '%s\n' "$HTTP_RESPONSE" | head -n 40
+  exit 1
+fi
+
+if ! printf '%s' "$HTTP_RESPONSE" | grep -q '"username":"smokeuser@localhost"'; then
+  echo "JWT auth check failed: expected username smokeuser@localhost"
+  printf '%s\n' "$HTTP_RESPONSE" | head -n 40
+  exit 1
+fi
+
+echo "JWT authentication smoke check passed"
 
 echo "Stopping mongooseim"
 cleanup

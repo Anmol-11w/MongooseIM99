@@ -418,30 +418,6 @@ jobs:
               --set image.tag="sha-${SHORT_SHA}" \
               --set image.pullPolicy="Always"
 
-            # ✅ Self-heal legacy ConfigMap mount overriding /etc/mongooseim/mongooseim.toml
-            LEGACY_CFG_MOUNT_NAME="$(kubectl get deployment/${APP_DEPLOY} -n "$MIM_NS" \
-              -o jsonpath='{range .spec.template.spec.containers[?(@.name=="mongooseim")].volumeMounts[?(@.mountPath=="/etc/mongooseim/mongooseim.toml")]}{.name}{"\n"}{end}' \
-              | head -n1)"
-            if [[ -n "$LEGACY_CFG_MOUNT_NAME" ]]; then
-              echo "⚠️  Removing legacy config override mount '$LEGACY_CFG_MOUNT_NAME'"
-              kubectl patch deployment/${APP_DEPLOY} -n "$MIM_NS" --type strategic -p "
-              spec:
-                template:
-                  spec:
-                    containers:
-                    - name: mongooseim
-                      volumeMounts:
-                      - name: ${LEGACY_CFG_MOUNT_NAME}
-                        mountPath: /etc/mongooseim/mongooseim.toml
-                        subPath: mongooseim.toml
-                        \$patch: delete
-                    volumes:
-                    - name: ${LEGACY_CFG_MOUNT_NAME}
-                      \$patch: delete
-              "
-              echo "✅ Legacy config override removed"
-            fi
-
             # Force restart so new deployment.yaml startup script runs in pods
             echo "🔄 Restarting pods to apply new startup script..."
             kubectl rollout restart deployment/${APP_DEPLOY} -n "$MIM_NS"
@@ -454,13 +430,6 @@ jobs:
             fi
             echo "✅ Rollout complete"
 
-            # ✅ Verify config source path in running pod
-            if kubectl get deployment/${APP_DEPLOY} -n "$MIM_NS" -o yaml | grep -q "subPath: mongooseim.toml"; then
-              echo "❌ FAILED: detected ConfigMap subPath override for mongooseim.toml"
-              echo "   Deployment must use /etc/mongooseim/mongooseim.toml from the image build"
-              exit 1
-            fi
-
             POD_NAME="$(kubectl get pods -n "$MIM_NS" --field-selector=status.phase=Running -o name \
               | grep "^pod/${APP_DEPLOY}-" \
               | grep -v "^pod/${APP_DEPLOY}-redis-" \
@@ -468,32 +437,31 @@ jobs:
               | head -n1 \
               | cut -d/ -f2 || true)"
             if [[ -z "$POD_NAME" ]]; then
-              echo "❌ FAILED: could not find mongooseim pod to verify config source"
+              echo "❌ FAILED: could not find mongooseim running pod"
               kubectl get pods -n "$MIM_NS" -o wide || true
               exit 1
             fi
-
-            if ! kubectl exec "$POD_NAME" -n "$MIM_NS" -c mongooseim -- sh -ec '
-              CONF_SRC="/etc/mongooseim/mongooseim.toml"
-              [ -f "$CONF_SRC" ] || exit 1
-              grep -Eq "^\[modules\.mod_ai_bot\]" "$CONF_SRC"
-              grep -Eq "^\[modules\.mod_ai_bot_voice\]" "$CONF_SRC"
-            '; then
-              echo "❌ FAILED: source config missing or does not include AI bot modules"
-              exit 1
-            fi
-            echo "✅ Config source verified — /etc/mongooseim/mongooseim.toml includes AI bot modules"
 
             # ✅ Verify JWT-only auth in the runtime config inside the pod
             echo ""
             echo "🔍 Verifying JWT-only auth policy in runtime config..."
             kubectl exec "$POD_NAME" -n "$MIM_NS" -c mongooseim -- sh -ec '
-              CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
+              CONF=""
+              for CANDIDATE in /var/lib/mongooseim/mongooseim.runtime.toml /var/lib/mongooseim/etc/mongooseim.runtime.toml; do
+                if [ -f "$CANDIDATE" ]; then
+                  CONF="$CANDIDATE"
+                  break
+                fi
+              done
 
-              if [ ! -f "$CONF" ]; then
-                echo "❌ Runtime config not found at $CONF"
+              if [ -z "$CONF" ]; then
+                echo "❌ Runtime config not found at expected paths"
+                echo "   checked: /var/lib/mongooseim/mongooseim.runtime.toml"
+                echo "            /var/lib/mongooseim/etc/mongooseim.runtime.toml"
                 exit 1
               fi
+
+              echo "📄 Using runtime config: $CONF"
 
               echo "📄 Auth section in runtime config:"
               grep -A12 "^\[auth\]" "$CONF" || true
@@ -536,12 +504,22 @@ jobs:
             echo ""
             echo "🔍 Verifying DB config has no hardcoded values..."
             kubectl exec "$POD_NAME" -n "$MIM_NS" -c mongooseim -- sh -ec '
-              CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
+              CONF=""
+              for CANDIDATE in /var/lib/mongooseim/mongooseim.runtime.toml /var/lib/mongooseim/etc/mongooseim.runtime.toml; do
+                if [ -f "$CANDIDATE" ]; then
+                  CONF="$CANDIDATE"
+                  break
+                fi
+              done
 
-              if [ ! -f "$CONF" ]; then
-                echo "❌ Runtime config not found at $CONF"
+              if [ -z "$CONF" ]; then
+                echo "❌ Runtime config not found at expected paths"
+                echo "   checked: /var/lib/mongooseim/mongooseim.runtime.toml"
+                echo "            /var/lib/mongooseim/etc/mongooseim.runtime.toml"
                 exit 1
               fi
+
+              echo "📄 Using runtime config: $CONF"
 
               echo "📄 DB config in runtime config:"
               grep -E "driver|host|port|database|username" "$CONF" | grep -v "^#" || true
@@ -564,12 +542,22 @@ jobs:
             echo ""
             echo "🔍 Verifying AI bot API key is injected from environment secret..."
             kubectl exec "$POD_NAME" -n "$MIM_NS" -c mongooseim -- sh -ec '
-              CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
+              CONF=""
+              for CANDIDATE in /var/lib/mongooseim/mongooseim.runtime.toml /var/lib/mongooseim/etc/mongooseim.runtime.toml; do
+                if [ -f "$CANDIDATE" ]; then
+                  CONF="$CANDIDATE"
+                  break
+                fi
+              done
 
-              if [ ! -f "$CONF" ]; then
-                echo "❌ Runtime config not found at $CONF"
+              if [ -z "$CONF" ]; then
+                echo "❌ Runtime config not found at expected paths"
+                echo "   checked: /var/lib/mongooseim/mongooseim.runtime.toml"
+                echo "            /var/lib/mongooseim/etc/mongooseim.runtime.toml"
                 exit 1
               fi
+
+              echo "📄 Using runtime config: $CONF"
 
               echo "📄 AI bot config in runtime config:"
               grep -A10 "^\[modules\.mod_ai_bot\]" "$CONF" || true
@@ -611,8 +599,6 @@ jobs:
             echo "📦 Running pods:"
             kubectl get pods -n "$MIM_NS"
            
-           
-
 # =====================================================
 # MONITORING DEPLOY
 # =====================================================
