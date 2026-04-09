@@ -263,7 +263,7 @@ parse_response_body(gemini, #{<<"candidates">> := [#{<<"content">> := #{<<"parts
     Texts = [T || #{<<"text">> := T} <- Parts],
     {ok, iolist_to_binary(lists:join(<<"\n">>, Texts))}.
 
--spec send_reply(jid:jid(), jid:jid(), binary()) -> ok.
+-spec send_reply(jid:jid(), jid:jid(), binary()) -> mongoose_acc:t().
 send_reply(OrigFrom, BotJid, ResponseText) ->
     ReplyEl = #xmlel{
         name = <<"message">>,

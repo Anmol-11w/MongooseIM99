@@ -6,9 +6,9 @@
 %%% Implements a full voice pipeline using Groq APIs:
 %%%   Audio In → STT (Whisper) → LLM (LLaMA) → TTS (Orpheus) → Audio Out
 %%%
-%%% Clients send audio data as base64 in a custom <audio> element.
+%%% Clients send audio data as base64 in a custom &lt;audio&gt; element.
 %%% The module processes it through the pipeline and responds with
-%%% text (<body>) plus an audio URL (XEP-0066 Out-of-Band Data).
+%%% text (&lt;body&gt;) plus an audio URL (XEP-0066 Out-of-Band Data).
 %%% Audio files are saved to disk and served via mod_ai_bot_voice_http.
 %%%
 %%% XMPP Protocol:
@@ -25,7 +25,7 @@
 %%%       </x>
 %%%     </message>
 %%%
-%%% Text-only fallback: if a <body> is sent instead of <audio>,
+%%% Text-only fallback: if a &lt;body&gt; is sent instead of &lt;audio&gt;,
 %%% the STT step is skipped and the text goes directly to LLM → TTS.
 %%%
 %%% Configuration (mongooseim.toml):
@@ -394,7 +394,7 @@ extract_audio(Packet) ->
 %%--------------------------------------------------------------------
 
 -spec send_voice_reply(jid:jid(), jid:jid(), mongooseim:host_type(),
-                       binary(), binary()) -> ok.
+                       binary(), binary()) -> mongoose_acc:t().
 send_voice_reply(OrigFrom, BotJid, HostType, ResponseText, AudioBytes) ->
     ResponseFormat = gen_mod:get_module_opt(HostType, ?MODULE, response_format),
     AudioDir = gen_mod:get_module_opt(HostType, ?MODULE, audio_dir),
@@ -430,7 +430,7 @@ send_voice_reply(OrigFrom, BotJid, HostType, ResponseText, AudioBytes) ->
     },
     route_reply(OrigFrom, BotJid, ReplyEl).
 
--spec send_text_reply(jid:jid(), jid:jid(), binary()) -> ok.
+-spec send_text_reply(jid:jid(), jid:jid(), binary()) -> mongoose_acc:t().
 send_text_reply(OrigFrom, BotJid, Text) ->
     ReplyEl = #xmlel{
         name = <<"message">>,
@@ -447,7 +447,7 @@ send_text_reply(OrigFrom, BotJid, Text) ->
     },
     route_reply(OrigFrom, BotJid, ReplyEl).
 
--spec route_reply(jid:jid(), jid:jid(), exml:element()) -> ok.
+-spec route_reply(jid:jid(), jid:jid(), exml:element()) -> mongoose_acc:t().
 route_reply(OrigFrom, BotJid, ReplyEl) ->
     ejabberd_router:route(BotJid, OrigFrom,
                           mongoose_acc:new(#{from_jid => BotJid,

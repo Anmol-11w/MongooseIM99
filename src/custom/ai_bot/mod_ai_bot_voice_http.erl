@@ -20,6 +20,8 @@
 %% Cowboy handler callbacks
 -export([init/2]).
 
+-ignore_xref([init/2]).
+
 -include("mongoose_config_spec.hrl").
 
 %%--------------------------------------------------------------------
