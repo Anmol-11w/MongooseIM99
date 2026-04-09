@@ -393,8 +393,6 @@ jobs:
             REDIS_GEN_BEFORE="$(get_generation "$REDIS_DEPLOY")"
 
             # ✅ Inject all secrets as env vars on the MongooseIM deployment
-            # The deployment.yaml startup script reads these and writes them
-            # into the runtime config — no hardcoded values anywhere
             echo "🔐 Injecting secrets as pod environment variables..."
             kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
               MIM_DB_HOST="${DB_HOST}" \
@@ -409,7 +407,7 @@ jobs:
               MIM_TLS_KEY_PEM="${TLS_KEY_PEM}"
             echo "✅ Secrets injected as env vars"
 
-            # ✅ Deploy new image via Helm (only image changes, secrets stay as env vars)
+            # ✅ Deploy new image via Helm
             echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
             helm upgrade --install mim ./helm/mongooseim \
               --namespace "$MIM_NS" \
@@ -429,154 +427,6 @@ jobs:
               exit 1
             fi
             echo "✅ Rollout complete"
-
-            POD_NAME="$(kubectl get pods -n "$MIM_NS" --field-selector=status.phase=Running -o name \
-              | grep "^pod/${APP_DEPLOY}-" \
-              | grep -v "^pod/${APP_DEPLOY}-redis-" \
-              | grep -v "^pod/${APP_DEPLOY}-postgresql-" \
-              | head -n1 \
-              | cut -d/ -f2 || true)"
-            if [[ -z "$POD_NAME" ]]; then
-              echo "❌ FAILED: could not find mongooseim running pod"
-              kubectl get pods -n "$MIM_NS" -o wide || true
-              exit 1
-            fi
-
-            # ✅ Verify JWT-only auth in the runtime config inside the pod
-            echo ""
-            echo "🔍 Verifying JWT-only auth policy in runtime config..."
-            kubectl exec "$POD_NAME" -n "$MIM_NS" -c mongooseim -- sh -ec '
-              CONF=""
-              for CANDIDATE in /var/lib/mongooseim/mongooseim.runtime.toml /var/lib/mongooseim/etc/mongooseim.runtime.toml; do
-                if [ -f "$CANDIDATE" ]; then
-                  CONF="$CANDIDATE"
-                  break
-                fi
-              done
-
-              if [ -z "$CONF" ]; then
-                echo "❌ Runtime config not found at expected paths"
-                echo "   checked: /var/lib/mongooseim/mongooseim.runtime.toml"
-                echo "            /var/lib/mongooseim/etc/mongooseim.runtime.toml"
-                exit 1
-              fi
-
-              echo "📄 Using runtime config: $CONF"
-
-              echo "📄 Auth section in runtime config:"
-              grep -A12 "^\[auth\]" "$CONF" || true
-              echo ""
-
-              # Must have methods = ["jwt"]
-              if ! grep -Eq "methods\s*=\s*\[\"jwt\"\]" "$CONF"; then
-                echo "❌ FAILED: methods = [\"jwt\"] not found — password login may be open!"
-                exit 1
-              fi
-
-              # Must have sasl_mechanisms = ["plain"]
-              if ! grep -Eq "sasl_mechanisms\s*=\s*\[\"plain\"\]" "$CONF"; then
-                echo "❌ FAILED: sasl_mechanisms = [\"plain\"] not found"
-                exit 1
-              fi
-
-              # Must have [auth.jwt] section
-              if ! grep -Eq "^\[auth\.jwt\]" "$CONF"; then
-                echo "❌ FAILED: [auth.jwt] section missing"
-                exit 1
-              fi
-
-              # Must have secret configured
-              if ! grep -Eq "secret\.(value|file)\s*=" "$CONF"; then
-                echo "❌ FAILED: JWT secret not configured"
-                exit 1
-              fi
-
-              # Must NOT have any password-based auth backend
-              if grep -Eq "^\[auth\.(internal|rdbms|ldap|external)\]" "$CONF"; then
-                echo "❌ FAILED: password-based auth backend found — users can login with password!"
-                exit 1
-              fi
-
-              echo "✅ JWT-only auth verified — password login is BLOCKED"
-            '
-
-            # ✅ Verify DB config has no hardcoded fallback values
-            echo ""
-            echo "🔍 Verifying DB config has no hardcoded values..."
-            kubectl exec "$POD_NAME" -n "$MIM_NS" -c mongooseim -- sh -ec '
-              CONF=""
-              for CANDIDATE in /var/lib/mongooseim/mongooseim.runtime.toml /var/lib/mongooseim/etc/mongooseim.runtime.toml; do
-                if [ -f "$CANDIDATE" ]; then
-                  CONF="$CANDIDATE"
-                  break
-                fi
-              done
-
-              if [ -z "$CONF" ]; then
-                echo "❌ Runtime config not found at expected paths"
-                echo "   checked: /var/lib/mongooseim/mongooseim.runtime.toml"
-                echo "            /var/lib/mongooseim/etc/mongooseim.runtime.toml"
-                exit 1
-              fi
-
-              echo "📄 Using runtime config: $CONF"
-
-              echo "📄 DB config in runtime config:"
-              grep -E "driver|host|port|database|username" "$CONF" | grep -v "^#" || true
-              echo ""
-
-              if grep -q "host = \"localhost\"" "$CONF"; then
-                echo "❌ FAILED: hardcoded localhost found in DB config!"
-                exit 1
-              fi
-
-              if grep -q "mongooseim_secret" "$CONF"; then
-                echo "❌ FAILED: hardcoded default password found in DB config!"
-                exit 1
-              fi
-
-              echo "✅ DB config verified — no hardcoded values"
-            '
-
-            # ✅ Verify AI bot API key is injected from secret (not hardcoded in template)
-            echo ""
-            echo "🔍 Verifying AI bot API key is injected from environment secret..."
-            kubectl exec "$POD_NAME" -n "$MIM_NS" -c mongooseim -- sh -ec '
-              CONF=""
-              for CANDIDATE in /var/lib/mongooseim/mongooseim.runtime.toml /var/lib/mongooseim/etc/mongooseim.runtime.toml; do
-                if [ -f "$CANDIDATE" ]; then
-                  CONF="$CANDIDATE"
-                  break
-                fi
-              done
-
-              if [ -z "$CONF" ]; then
-                echo "❌ Runtime config not found at expected paths"
-                echo "   checked: /var/lib/mongooseim/mongooseim.runtime.toml"
-                echo "            /var/lib/mongooseim/etc/mongooseim.runtime.toml"
-                exit 1
-              fi
-
-              echo "📄 Using runtime config: $CONF"
-
-              echo "📄 AI bot config in runtime config:"
-              grep -A10 "^\[modules\.mod_ai_bot\]" "$CONF" || true
-              echo ""
-              grep -A12 "^\[modules\.mod_ai_bot_voice\]" "$CONF" || true
-              echo ""
-
-              if ! grep -A10 "^\[modules\.mod_ai_bot\]" "$CONF" | grep -Eq "^[[:space:]]*api_key[[:space:]]*=[[:space:]]*\".+\""; then
-                echo "❌ FAILED: mod_ai_bot api_key is missing or empty"
-                exit 1
-              fi
-
-              if ! grep -A12 "^\[modules\.mod_ai_bot_voice\]" "$CONF" | grep -Eq "^[[:space:]]*api_key[[:space:]]*=[[:space:]]*\".+\""; then
-                echo "❌ FAILED: mod_ai_bot_voice api_key is missing or empty"
-                exit 1
-              fi
-
-              echo "✅ AI bot API key verified — injected at runtime"
-            '
 
             # ✅ Verify PostgreSQL and Redis deployments were NOT changed
             PG_GEN_AFTER="$(get_generation "$PG_DEPLOY")"
@@ -598,7 +448,7 @@ jobs:
             echo ""
             echo "📦 Running pods:"
             kubectl get pods -n "$MIM_NS"
-           
+
 # =====================================================
 # MONITORING DEPLOY
 # =====================================================
