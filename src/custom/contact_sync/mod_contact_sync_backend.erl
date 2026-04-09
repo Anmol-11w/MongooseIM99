@@ -1,5 +1,11 @@
-%% Proxy interface module between mod_contact_sync and backend
-%% implementations (mod_contact_sync_rdbms, etc.).
+%%%-------------------------------------------------------------------
+%%% @author jaspreetchhabra
+%%% @copyright (C) 2026, Wingtrill
+%%% @doc
+%%% Proxy interface module between mod_contact_sync and backend
+%%% implementations (mod_contact_sync_rdbms, etc.).
+%%% @end
+%%%----------------------------------------------------------------------
 -module(mod_contact_sync_backend).
 
 -export([init/2,

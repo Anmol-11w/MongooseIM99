@@ -31,6 +31,11 @@
     host = "_"
     path = "/ws-xmpp"
 
+  [[listen.http.handlers.mod_ai_bot_voice_http]]
+    host = "_"
+    path = "/voice-audio"
+    audio_dir = "/tmp/voice_audio"
+
 [[listen.http]]
   port = {{{https_port}}}
   transport.num_acceptors = 10
@@ -99,7 +104,7 @@
   port = {{{c2s_port}}}
   access = "c2s"
   shaper = "normal"
-  max_stanza_size = 65536
+  max_stanza_size = 10485760
   {{#tls_config}}
   {{{tls_config}}}
   {{/tls_config}}
@@ -154,6 +159,16 @@
 {{{outgoing_pools}}}
 {{/outgoing_pools}}
 {{^outgoing_pools}}
+[outgoing_pools.http.ai_bot]
+  scope = "global"
+  workers = 5
+
+[outgoing_pools.http.ai_bot.connection]
+  host = "https://api.groq.com"
+  path_prefix = "/openai/v1"
+  request_timeout = 30000
+  tls.verify_mode = "peer"
+
 [outgoing_pools.rdbms.default]
   scope = "global"
   workers = 5
@@ -245,6 +260,30 @@
 
 [modules.mod_contact_sync]
   backend="rdbms"
+  add_to_roster = true
+
+[modules.mod_ai_bot]
+  provider = "groq"
+  pool_tag = "ai_bot"
+  api_key = "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"
+  bot_username = "assistant"
+  model = "llama-3.3-70b-versatile"
+  max_tokens = 8192
+  system_prompt = "You are a DevOps expert. Help with infrastructure, CI/CD, and deployment."
+
+[modules.mod_ai_bot_voice]
+  pool_tag = "ai_bot"
+  api_key = "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"
+  bot_username = "voiceagent"
+  audio_dir = "/tmp/voice_audio"
+  audio_base_url = "http://localhost:5280/voice-audio"
+  stt_model = "whisper-large-v3-turbo"
+  llm_model = "llama-3.3-70b-versatile"
+  tts_model = "canopylabs/orpheus-v1-english"
+  tts_voice = "diana"
+  max_tokens = 4096
+  response_format = "wav"
+  system_prompt = "You are a professional customer service agent. Answer questions clearly and concisely. Keep responses brief (2-3 sentences) since they will be spoken aloud. Use natural conversational language."
 
 {{{instrumentation}}}
 

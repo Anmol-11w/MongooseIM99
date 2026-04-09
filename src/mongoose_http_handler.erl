@@ -85,7 +85,8 @@ cowboy_host(Host) -> Host.
 %% @doc Only the handlers implementing config_spec/0 are listed here
 configurable_handler_modules() ->
     [mongoose_graphql_handler,
-     mongoose_websocket_handler].
+     mongoose_websocket_handler,
+     mod_ai_bot_voice_http].
 
 %% @doc Call instrumentation for a module of `mongoose_http_handler' behaviour
 -spec instrumentation(module()) -> [mongoose_instrument:spec()].

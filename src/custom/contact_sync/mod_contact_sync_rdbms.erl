@@ -1,5 +1,11 @@
-%% RDBMS backend for mod_contact_sync.
-%% Optimized with last7 digit matching for faster lookup.
+%%%-------------------------------------------------------------------
+%%% @author jaspreetchhabra
+%%% @copyright (C) 2026, Wingtrill
+%%% @doc
+%%% RDBMS backend for mod_contact_sync.
+%%% Optimized with last7 digit matching for faster lookup.
+%%% @end
+%%%----------------------------------------------------------------------
 
 -module(mod_contact_sync_rdbms).
 
