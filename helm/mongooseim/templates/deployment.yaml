@@ -42,9 +42,11 @@ spec:
             - -ec
             - |
               set -e
-              # Use the rendered config from the release image directly.
-              # This avoids legacy single-file overrides mounted at /etc/mongooseim.toml.
-              CONF="/etc/mongooseim/mongooseim.toml"
+              # Read config from release image path and copy it to a writable file.
+              # Some clusters mount /etc/mongooseim/mongooseim.toml via subPath,
+              # which makes in-place edits (sed -i / mv) fail with "resource busy".
+              CONF_SRC="/etc/mongooseim/mongooseim.toml"
+              CONF="/var/lib/mongooseim/etc/mongooseim.toml"
               JWT_KEY_FILE="/var/lib/mongooseim/jwt_public_key.pem"
               sanitize_single_line() {
                 printf '%s' "$1" | tr -d '\r\n'
@@ -52,7 +54,16 @@ spec:
               escape_toml_string() {
                 printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
               }
+
+              if [[ ! -f "$CONF_SRC" ]]; then
+                echo "❌ FATAL: source config not found at $CONF_SRC"
+                exit 1
+              fi
+              mkdir -p "$(dirname "$CONF")"
+              cp "$CONF_SRC" "$CONF"
+
               export EJABBERD_CONFIG_PATH="$CONF"
+              echo "Using source config: $CONF_SRC"
               echo "Using EJABBERD_CONFIG_PATH=$EJABBERD_CONFIG_PATH"
 
               # Keep default cert paths for local/dev.
