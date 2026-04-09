@@ -344,13 +344,14 @@ jobs:
           DB_PASSWORD: ${{ secrets.MIM_DB_PASSWORD }}
           XMPP_HOST: ${{ secrets.MIM_XMPP_HOST }}
           JWT_PUBLIC_KEY: ${{ secrets.MIM_JWT_PUBLIC_KEY }}
+          AI_BOT_API_KEY: ${{ secrets.MIM_AI_BOT_API_KEY }}
           TLS_CERT_PEM: ${{ secrets.MIM_TLS_CERT_PEM }}
           TLS_KEY_PEM: ${{ secrets.MIM_TLS_KEY_PEM }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,XMPP_HOST,JWT_PUBLIC_KEY,TLS_CERT_PEM,TLS_KEY_PEM
+          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,XMPP_HOST,JWT_PUBLIC_KEY,AI_BOT_API_KEY,TLS_CERT_PEM,TLS_KEY_PEM
           script: |
             export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
             cd /opt/MongooseIM99
@@ -370,6 +371,7 @@ jobs:
             [[ -z "$DB_HOST" ]]        && MISSING="$MISSING DB_HOST"
             [[ -z "$DB_PASSWORD" ]]    && MISSING="$MISSING DB_PASSWORD"
             [[ -z "$JWT_PUBLIC_KEY" ]] && MISSING="$MISSING JWT_PUBLIC_KEY"
+            [[ -z "$AI_BOT_API_KEY" ]] && MISSING="$MISSING AI_BOT_API_KEY"
             [[ -z "$XMPP_HOST" ]]      && MISSING="$MISSING XMPP_HOST"
             [[ -z "$TLS_CERT_PEM" ]]   && MISSING="$MISSING TLS_CERT_PEM"
             [[ -z "$TLS_KEY_PEM" ]]    && MISSING="$MISSING TLS_KEY_PEM"
@@ -400,6 +402,7 @@ jobs:
               MIM_DB_PASSWORD="${DB_PASSWORD}" \
               MIM_XMPP_HOST="${XMPP_HOST}" \
               MIM_JWT_PUBLIC_KEY="${JWT_PUBLIC_KEY}" \
+              MIM_AI_BOT_API_KEY="${AI_BOT_API_KEY}" \
               MIM_TLS_CERT_PEM="${TLS_CERT_PEM}" \
               MIM_TLS_KEY_PEM="${TLS_KEY_PEM}"
             echo "✅ Secrets injected as env vars"
@@ -495,6 +498,41 @@ jobs:
               fi
 
               echo "✅ DB config verified — no hardcoded values"
+            '
+
+            # ✅ Verify AI bot API key is injected from secret (not hardcoded in template)
+            echo ""
+            echo "🔍 Verifying AI bot API key is injected from environment secret..."
+            kubectl exec deployment/${APP_DEPLOY} -n "$MIM_NS" -c mongooseim -- sh -ec '
+              CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
+
+              if [ ! -f "$CONF" ]; then
+                echo "❌ Runtime config not found at $CONF"
+                exit 1
+              fi
+
+              echo "📄 AI bot config in runtime config:"
+              grep -A10 "^\[modules\.mod_ai_bot\]" "$CONF" || true
+              echo ""
+              grep -A12 "^\[modules\.mod_ai_bot_voice\]" "$CONF" || true
+              echo ""
+
+              if ! grep -A10 "^\[modules\.mod_ai_bot\]" "$CONF" | grep -Eq "^[[:space:]]*api_key[[:space:]]*=[[:space:]]*\".+\""; then
+                echo "❌ FAILED: mod_ai_bot api_key is missing or empty"
+                exit 1
+              fi
+
+              if ! grep -A12 "^\[modules\.mod_ai_bot_voice\]" "$CONF" | grep -Eq "^[[:space:]]*api_key[[:space:]]*=[[:space:]]*\".+\""; then
+                echo "❌ FAILED: mod_ai_bot_voice api_key is missing or empty"
+                exit 1
+              fi
+
+              if grep -q "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" "$CONF"; then
+                echo "❌ FAILED: legacy hardcoded API key still present in runtime config"
+                exit 1
+              fi
+
+              echo "✅ AI bot API key verified — injected at runtime"
             '
 
             # ✅ Verify PostgreSQL and Redis deployments were NOT changed
