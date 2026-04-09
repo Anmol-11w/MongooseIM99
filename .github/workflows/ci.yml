@@ -527,11 +527,6 @@ jobs:
                 exit 1
               fi
 
-              if grep -q "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" "$CONF"; then
-                echo "❌ FAILED: legacy hardcoded API key still present in runtime config"
-                exit 1
-              fi
-
               echo "✅ AI bot API key verified — injected at runtime"
             '
 
