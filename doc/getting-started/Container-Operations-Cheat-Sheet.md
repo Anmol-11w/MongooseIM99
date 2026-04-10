@@ -25,15 +25,22 @@ Use your secure credential store for passwords/keys. Avoid saving credentials in
 
 ssh root@94.136.184.234
 
-## 2. Useful files:
+## 2. Useful files inside container path:
 
-- `Dockerfile`
-- `docker-compose.yml`
-- `helm/mongooseim/values.yaml`
-- `helm/mongooseim/templates/deployment.yaml`
-- `k8s/mongooseim-deployment.yaml`
-- `load-test.sh`
-- `push_user_count.sh`
+- `/usr/bin/mongooseimctl` (CLI entrypoint in container)
+- `/usr/lib/mongooseim/bin/mongooseim` (runtime binary)
+- `/etc/mongooseim/mongooseim.toml` (base config copied into image)
+- `/etc/mongooseim.toml` (symlink to base config)
+- `/var/lib/mongooseim/etc/mongooseim.toml` (active config path)
+- `/var/log/mongooseim/` (server logs)
+- `/var/lib/mongooseim/` (runtime state)
+- `/var/lock/mongooseim/` (lock files)
+
+Quick check from Kubernetes:
+
+```bash
+kubectl exec -it -n mim "$POD" -c mongooseim -- /bin/bash -lc 'echo "$EJABBERD_CONFIG_PATH"; ls -lah /usr/bin/mongooseimctl /etc/mongooseim /var/log/mongooseim'
+```
 
 
 ## 3. Kubernetes basics (current workflow)
