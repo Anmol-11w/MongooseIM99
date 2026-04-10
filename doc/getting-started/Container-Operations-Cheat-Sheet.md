@@ -19,6 +19,12 @@ It covers:
 - Kubernetes deployment name used in CI: `mim-mongooseim`
 - Docker Compose in this repo currently starts PostgreSQL only
 
+## 1.1 SSH to server
+
+Use your secure credential store for passwords/keys. Avoid saving credentials in git.
+
+ssh root@94.136.184.234
+
 ## 2. Useful files:
 
 - `Dockerfile`
@@ -53,7 +59,7 @@ kubectl exec -it -n mim "$POD" -c mongooseim -- /bin/bash
 ```
 
 ## basic commands 
-
+```bash
 ./bin/mongooseimctl start
 ./bin/mongooseimctl stop
 ./bin/mongooseimctl restart
@@ -62,7 +68,7 @@ kubectl exec -it -n mim "$POD" -c mongooseim -- /bin/bash
 ./bin/mongooseimctl remote_console
 ./bin/mongooseimctl console
 ./bin/mongooseimctl foreground
-
+```bash
 
 ### 3.4 Run useful `mongooseimctl` commands from Kubernetes
 
