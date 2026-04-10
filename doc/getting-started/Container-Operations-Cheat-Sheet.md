@@ -2,15 +2,6 @@
 
 This page is a practical runbook for daily operations in this repository.
 
-It covers:
-
-- how to enter the server container
-- how to check logs
-- how to run MongooseIM commands
-- how to do temporary in-container changes
-- how to do permanent code changes and redeploy
-- basic troubleshooting commands
-
 ## 1. Quick context for this repository
 
 - Kubernetes namespace used by project scripts: `mim`
@@ -50,6 +41,15 @@ kubectl exec -it -n mim "$POD" -c mongooseim -- /bin/bash -lc 'cat /var/lib/mong
 ```bash
 kubectl get pods -n mim
 kubectl get pods -n mim -w (live)
+
+# See containers inside the pod
+kubectl get pod "$POD" -n mim -o jsonpath='{range .spec.containers[*]}{.name}{"\n"}{end}'
+
+# Enter shell:
+kubectl exec -it -n mim <POD_NAME> -- sh
+#check env
+kubectl exec -n mim <POD-NAME> -- env
+```
 ```
 
 ### 3.2 Check logs
@@ -182,8 +182,48 @@ kubectl rollout status deployment/mim-mongooseim -n mim --timeout=300s
 ### 6.3 Check PostgreSQL pod quickly
 
 ```bash
-PG_POD=$(kubectl get pod -n mim -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}')
-kubectl logs -n mim "$PG_POD" --tail=100
+# Inside Postgres
+kubectl exec -it <POD-NAME-SQL> -n mim -- bash
+psql -U mongooseim -d mongooseim
+
+# verify table
+kubectl exec -it <POD-NAME-SQL> -n mim -- \
+psql -U mongooseim -d mongooseim -c "\dt"
+
+# mam chat 
+kubectl exec -it <POD-NAME-SQL> -n mim -- \
+psql -U mongooseim -d mongooseim -c "SELECT * FROM mam_message LIMIT 10;"
+
+# Check users
+kubectl exec -it <POD-NAME-SQL> -n mim -- \
+psql -U mongooseim -d mongooseim -c "SELECT username, server, created_at FROM users;"
+
+# Check chat history
+kubectl exec -it <POD-NAME-SQL> -n mim -- \
+psql -U mongooseim -d mongooseim -c "SELECT * FROM mam_message LIMIT 10;"
+
+# Check inbox
+kubectl exec -it <POD-NAME-SQL> -n mim -- \
+psql -U mongooseim -d mongooseim -c "SELECT * FROM inbox LIMIT 10;"
+
+# Check MUC rooms
+kubectl exec -it <POD-NAME-SQL> -n mim -- \
+psql -U mongooseim -d mongooseim -c "SELECT * FROM muc_rooms;"
+
+# find SQL schema file
+kubectl exec -it <POD-NAME-MONGOOSEIM> -n mim -- \
+  find / -name "pg.sql" 2>/dev/null
+
+# Copy out from mongooseim pod to host
+kubectl cp mim/<POD-NAME-MONGOOSEIM>:/usr/lib/mongooseim/lib/mongooseim-6.6.0/priv/pg.sql /tmp/pg.sql -c mongooseim
+
+# Copy from host into postgres pod
+kubectl cp /tmp/pg.sql mim/<POD-NAME-SQL>:/tmp/pg.sql
+
+# Apply schema
+kubectl exec -it <POD-NAME-SQL> -n mim -- \
+psql -U mongooseim -d mongooseim -f /tmp/pg.sql
+
 ```
 
 ## 7. One-page command list
