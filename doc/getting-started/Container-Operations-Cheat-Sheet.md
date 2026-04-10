@@ -15,7 +15,7 @@ This page is a practical runbook for daily operations in this repository.
 Use your secure credential store for passwords/keys. Avoid saving credentials in git.
 ```bash
 ssh root@<IP>
-cd /opt/registration-app
+cd /opt/Mongooseim
 ```
 
 ## 2. Useful files inside container path:
