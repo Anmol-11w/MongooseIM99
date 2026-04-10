@@ -96,7 +96,6 @@ Use this only for emergency debugging.
 
 ```bash
 kubectl exec -it -n mim "$POD" -c mongooseim -- /bin/bash
-echo "$EJABBERD_CONFIG_PATH"
 ```
 
 2. Edit file with `vi` or `sed`.
