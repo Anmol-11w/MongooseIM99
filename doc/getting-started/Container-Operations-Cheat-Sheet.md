@@ -59,6 +59,7 @@ kubectl exec -it -n mim "$POD" -c mongooseim -- /bin/bash
 ```
 
 ## basic commands 
+
 ```bash
 ./bin/mongooseimctl start
 ./bin/mongooseimctl stop
@@ -68,7 +69,7 @@ kubectl exec -it -n mim "$POD" -c mongooseim -- /bin/bash
 ./bin/mongooseimctl remote_console
 ./bin/mongooseimctl console
 ./bin/mongooseimctl foreground
-```bash
+```
 
 ### 3.4 Run useful `mongooseimctl` commands from Kubernetes
 
@@ -156,26 +157,36 @@ kubectl get pods -n mim
 
 ### 6.1 Pod crash loop
 
+```bash
 kubectl get pods -n mim
 kubectl describe pod -n mim "$POD"
 kubectl logs -n mim "$POD" -c mongooseim --previous
+```
 
 ### 6.2 Restart only app deployment
 
+```bash
 kubectl rollout restart deployment/mim-mongooseim -n mim
 kubectl rollout status deployment/mim-mongooseim -n mim --timeout=300s
+```
 
 ### 6.3 Check PostgreSQL pod quickly
 
+```bash
 PG_POD=$(kubectl get pod -n mim -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}')
 kubectl logs -n mim "$PG_POD" --tail=100
+```
 
 ## 7. One-page command list
 
 # Admin commands
+```bash
 kubectl exec -i -n mim "$POD" -c mongooseim -- mongooseimctl status
 kubectl exec -i -n mim "$POD" -c mongooseim -- mongooseimctl get_loglevel
 kubectl exec -i -n mim "$POD" -c mongooseim -- mongooseimctl account countUsers --domain xmpp-mongo.wingtrill.com
+```
 
 # Helm upgrade to new image
+```bash
 helm upgrade --install mim ./helm/mongooseim --namespace mim --set image.repository=ghcr.io/anmol-11w/mongooseim99 --set image.tag=sha-<shortsha> --set image.pullPolicy=Always
+```
