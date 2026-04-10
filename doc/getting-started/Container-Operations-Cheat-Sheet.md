@@ -14,7 +14,8 @@ This page is a practical runbook for daily operations in this repository.
 
 Use your secure credential store for passwords/keys. Avoid saving credentials in git.
 
-ssh root@94.136.184.234
+ssh root@<IP>
+cd /opt/Mongooseim
 
 ## 2. Useful files inside container path:
 
@@ -34,7 +35,6 @@ Quick check from Kubernetes:
 kubectl exec -it -n mim "$POD" -c mongooseim -- /bin/bash -lc 'cat /var/lib/mongooseim/etc/mongooseim.toml'
 ```
 
-
 ## 3. Kubernetes basics (current workflow)
 
 ### 3.1 Find pods
@@ -47,9 +47,9 @@ kubectl get pod "$POD" -n mim -o jsonpath='{range .spec.containers[*]}{.name}{"\
 
 # Enter shell:
 kubectl exec -it -n mim <POD_NAME> -- sh
+
 #check env
 kubectl exec -n mim <POD-NAME> -- env
-```
 ```
 
 ### 3.2 Check logs
