@@ -39,16 +39,18 @@ ssh root@94.136.184.234
 Quick check from Kubernetes:
 
 ```bash
-kubectl exec -it -n mim "$POD" -c mongooseim -- /bin/bash -lc 'echo "$EJABBERD_CONFIG_PATH"; ls -lah /usr/bin/mongooseimctl /etc/mongooseim /var/log/mongooseim'
+# check current toml file
+kubectl exec -it -n mim "$POD" -c mongooseim -- /bin/bash -lc 'cat /var/lib/mongooseim/etc/mongooseim.toml'
 ```
 
 
 ## 3. Kubernetes basics (current workflow)
 
 ### 3.1 Find pods
-
+```bash
 kubectl get pods -n mim
 kubectl get pods -n mim -w (live)
+```
 
 ### 3.2 Check logs
 
