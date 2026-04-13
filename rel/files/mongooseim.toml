@@ -283,23 +283,24 @@
   add_to_roster = true
 
 [modules.mod_ai_bot]
-  provider = "gemini"
+  provider = "openai"
   pool_tag = "ai_bot"
-  api_key = "AIzaSyA4K3T8ONLUDDEhOFNdJz75X9EcbB1YhhU"
+  api_key = "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"
   bot_username = "assistant"
-  model = "gemini-2.0-flash"
+  model = "gpt-4o"
   max_tokens = 8192
   system_prompt = "You are a DevOps expert. Help with infrastructure, CI/CD, and deployment."
 
 [modules.mod_ai_bot_voice]
+  provider = "openai"
   pool_tag = "ai_bot"
-  api_key = "AIzaSyA4K3T8ONLUDDEhOFNdJz75X9EcbB1YhhU"
+  api_key = "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"
   bot_username = "voiceagent"
   audio_dir = "/tmp/voice_audio"
   audio_base_url = "http://localhost:5280/voice-audio"
-  llm_model = "gemini-2.0-flash"
-  tts_model = "gemini-2.5-flash"
-  tts_voice = "Kore"
+  llm_model = "gpt-4o"
+  tts_model = "tts-1"
+  tts_voice = "alloy"
   max_tokens = 4096
   system_prompt = "You are a professional customer service agent. Answer questions clearly and concisely. Keep responses brief (2-3 sentences) since they will be spoken aloud. Use natural conversational language."
 

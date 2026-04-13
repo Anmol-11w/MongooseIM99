@@ -88,6 +88,7 @@ supported_features() ->
 config_spec() ->
     #section{
         items = #{
+            <<"provider">> => #option{type = binary},
             <<"pool_tag">> => #option{type = atom, validate = pool_name},
             <<"bot_username">> => #option{type = binary},
             <<"api_key">> => #option{type = binary},
@@ -100,6 +101,7 @@ config_spec() ->
             <<"system_prompt">> => #option{type = binary}
         },
         defaults = #{
+            <<"provider">> => <<"openai">>,
             <<"bot_username">> => <<"voiceagent">>,
             <<"audio_dir">> => <<"/tmp/voice_audio">>,
             <<"audio_base_url">> => <<"http://localhost:5280/voice-audio">>,

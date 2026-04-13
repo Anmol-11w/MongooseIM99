@@ -119,7 +119,7 @@ user_send_message(Acc, _Params, #{host_type := HostType}) ->
     {ok, mongoose_acc:t()}.
 user_available(Acc, #{jid := UserJid}, #{host_type := HostType}) ->
     BotUsername = gen_mod:get_module_opt(HostType, ?MODULE, bot_username),
-    WelcomeMsg = gen_mod:get_module_opt(HostType, ?MODULE, welcome_message),
+    WelcomeMsg = gen_mod:get_module_opt(HostType, ?MODULE, system_prompt),
     Server = UserJid#jid.lserver,
     BotJid = jid:make_noprep(BotUsername, Server, <<>>),
     send_reply(UserJid, BotJid, WelcomeMsg),

@@ -768,8 +768,7 @@ configurable_modules() ->
      mod_version,
      mod_contact_sync,
      mod_ai_bot,
-     mod_ai_bot_voice,
-     mod_ai_bot_voice ].
+     mod_ai_bot_voice].
 
 %% path: (host_config[].)modules.*.iqdisc
 iqdisc() ->
