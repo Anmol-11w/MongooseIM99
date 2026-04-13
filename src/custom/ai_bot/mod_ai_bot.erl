@@ -41,6 +41,9 @@
 %% Hook handlers
 -export([user_send_message/3, user_available/3]).
 
+%% Macros
+-define(RATE_LIMIT_MS, 3000).
+
 %%--------------------------------------------------------------------
 %% gen_mod callbacks
 %%--------------------------------------------------------------------
@@ -303,8 +306,6 @@ parse_response_body(groq, Response) ->
 parse_response_body(gemini, #{<<"candidates">> := [#{<<"content">> := #{<<"parts">> := Parts}} | _]}) ->
     Texts = [T || #{<<"text">> := T} <- Parts],
     {ok, iolist_to_binary(lists:join(<<"\n">>, Texts))}.
-
--define(RATE_LIMIT_MS, 3000).
 
 -spec check_rate_limit(jid:jid()) -> ok | rate_limited.
 check_rate_limit(From) ->

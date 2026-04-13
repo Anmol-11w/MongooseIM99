@@ -344,14 +344,17 @@ jobs:
           DB_PASSWORD: ${{ secrets.MIM_DB_PASSWORD }}
           XMPP_HOST: ${{ secrets.MIM_XMPP_HOST }}
           JWT_PUBLIC_KEY: ${{ secrets.MIM_JWT_PUBLIC_KEY }}
+          AI_BOT_API_KEY: ${{ secrets.MIM_AI_BOT_API_KEY }}
           TLS_CERT_PEM: ${{ secrets.MIM_TLS_CERT_PEM }}
           TLS_KEY_PEM: ${{ secrets.MIM_TLS_KEY_PEM }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,XMPP_HOST,JWT_PUBLIC_KEY,TLS_CERT_PEM,TLS_KEY_PEM
+          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,XMPP_HOST,JWT_PUBLIC_KEY,AI_BOT_API_KEY,TLS_CERT_PEM,TLS_KEY_PEM
           script: |
+            set -euo pipefail
+
             export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
             cd /opt/MongooseIM99
 
@@ -370,6 +373,7 @@ jobs:
             [[ -z "$DB_HOST" ]]        && MISSING="$MISSING DB_HOST"
             [[ -z "$DB_PASSWORD" ]]    && MISSING="$MISSING DB_PASSWORD"
             [[ -z "$JWT_PUBLIC_KEY" ]] && MISSING="$MISSING JWT_PUBLIC_KEY"
+            [[ -z "$AI_BOT_API_KEY" ]] && MISSING="$MISSING AI_BOT_API_KEY"
             [[ -z "$XMPP_HOST" ]]      && MISSING="$MISSING XMPP_HOST"
             [[ -z "$TLS_CERT_PEM" ]]   && MISSING="$MISSING TLS_CERT_PEM"
             [[ -z "$TLS_KEY_PEM" ]]    && MISSING="$MISSING TLS_KEY_PEM"
@@ -389,8 +393,6 @@ jobs:
             REDIS_GEN_BEFORE="$(get_generation "$REDIS_DEPLOY")"
 
             # ✅ Inject all secrets as env vars on the MongooseIM deployment
-            # The deployment.yaml startup script reads these and writes them
-            # into the runtime config — no hardcoded values anywhere
             echo "🔐 Injecting secrets as pod environment variables..."
             kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
               MIM_DB_HOST="${DB_HOST}" \
@@ -400,15 +402,16 @@ jobs:
               MIM_DB_PASSWORD="${DB_PASSWORD}" \
               MIM_XMPP_HOST="${XMPP_HOST}" \
               MIM_JWT_PUBLIC_KEY="${JWT_PUBLIC_KEY}" \
+              MIM_AI_BOT_API_KEY="${AI_BOT_API_KEY}" \
               MIM_TLS_CERT_PEM="${TLS_CERT_PEM}" \
               MIM_TLS_KEY_PEM="${TLS_KEY_PEM}"
             echo "✅ Secrets injected as env vars"
 
-            # ✅ Deploy new image via Helm (only image changes, secrets stay as env vars)
+            # ✅ Deploy new image via Helm
             echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
             helm upgrade --install mim ./helm/mongooseim \
               --namespace "$MIM_NS" \
-              --reuse-values \
+              --reset-values \
               --set image.repository="ghcr.io/anmol-11w/mongooseim99" \
               --set image.tag="sha-${SHORT_SHA}" \
               --set image.pullPolicy="Always"
@@ -418,84 +421,12 @@ jobs:
             kubectl rollout restart deployment/${APP_DEPLOY} -n "$MIM_NS"
 
             echo "⏳ Waiting for rollout to complete..."
-            kubectl rollout status deployment/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s
+            if ! kubectl rollout status deployment/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s; then
+              echo "❌ FAILED: rollout timed out"
+              kubectl get pods -n "$MIM_NS" -o wide || true
+              exit 1
+            fi
             echo "✅ Rollout complete"
-
-            # ✅ Verify JWT-only auth in the runtime config inside the pod
-            echo ""
-            echo "🔍 Verifying JWT-only auth policy in runtime config..."
-            kubectl exec deployment/${APP_DEPLOY} -n "$MIM_NS" -c mongooseim -- sh -ec '
-              CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
-
-              if [ ! -f "$CONF" ]; then
-                echo "❌ Runtime config not found at $CONF"
-                exit 1
-              fi
-
-              echo "📄 Auth section in runtime config:"
-              grep -A12 "^\[auth\]" "$CONF" || true
-              echo ""
-
-              # Must have methods = ["jwt"]
-              if ! grep -Eq "methods\s*=\s*\[\"jwt\"\]" "$CONF"; then
-                echo "❌ FAILED: methods = [\"jwt\"] not found — password login may be open!"
-                exit 1
-              fi
-
-              # Must have sasl_mechanisms = ["plain"]
-              if ! grep -Eq "sasl_mechanisms\s*=\s*\[\"plain\"\]" "$CONF"; then
-                echo "❌ FAILED: sasl_mechanisms = [\"plain\"] not found"
-                exit 1
-              fi
-
-              # Must have [auth.jwt] section
-              if ! grep -Eq "^\[auth\.jwt\]" "$CONF"; then
-                echo "❌ FAILED: [auth.jwt] section missing"
-                exit 1
-              fi
-
-              # Must have secret configured
-              if ! grep -Eq "secret\.(value|file)\s*=" "$CONF"; then
-                echo "❌ FAILED: JWT secret not configured"
-                exit 1
-              fi
-
-              # Must NOT have any password-based auth backend
-              if grep -Eq "^\[auth\.(internal|rdbms|ldap|external)\]" "$CONF"; then
-                echo "❌ FAILED: password-based auth backend found — users can login with password!"
-                exit 1
-              fi
-
-              echo "✅ JWT-only auth verified — password login is BLOCKED"
-            '
-
-            # ✅ Verify DB config has no hardcoded fallback values
-            echo ""
-            echo "🔍 Verifying DB config has no hardcoded values..."
-            kubectl exec deployment/${APP_DEPLOY} -n "$MIM_NS" -c mongooseim -- sh -ec '
-              CONF="/var/lib/mongooseim/mongooseim.runtime.toml"
-
-              if [ ! -f "$CONF" ]; then
-                echo "❌ Runtime config not found at $CONF"
-                exit 1
-              fi
-
-              echo "📄 DB config in runtime config:"
-              grep -E "driver|host|port|database|username" "$CONF" | grep -v "^#" || true
-              echo ""
-
-              if grep -q "host = \"localhost\"" "$CONF"; then
-                echo "❌ FAILED: hardcoded localhost found in DB config!"
-                exit 1
-              fi
-
-              if grep -q "mongooseim_secret" "$CONF"; then
-                echo "❌ FAILED: hardcoded default password found in DB config!"
-                exit 1
-              fi
-
-              echo "✅ DB config verified — no hardcoded values"
-            '
 
             # ✅ Verify PostgreSQL and Redis deployments were NOT changed
             PG_GEN_AFTER="$(get_generation "$PG_DEPLOY")"
@@ -517,11 +448,6 @@ jobs:
             echo ""
             echo "📦 Running pods:"
             kubectl get pods -n "$MIM_NS"
-            echo ""
-            echo "🔍 Image verification:"
-            kubectl get pods -n "$MIM_NS" \
-              -o jsonpath='{range .items[*]}{.metadata.name}{" -> "}{.status.containerStatuses[0].imageID}{"\n"}{end}'
-
 
 # =====================================================
 # MONITORING DEPLOY

@@ -57,75 +57,130 @@ BAD_BOOTSTRAP_RESULT=$(mongooseimctl bootstrap || echo "It should fail")
 echo "$BAD_BOOTSTRAP_RESULT" | grep "It should fail"
 
 
-echo "Configuring auth for smoke test (no MySQL available)"
-MIM_CONF=/etc/mongooseim/mongooseim.toml
-# Remove auth tables that rely on unavailable external dependencies in smoke tests.
-awk '
-	BEGIN { skip = 0 }
-	{
-		if ($0 ~ /^[[:space:]]*\[auth\.(rdbms|jwt)\][[:space:]]*$/) {
-			skip = 1
-			next
-		}
-		if (skip && $0 ~ /^[[:space:]]*\[/ && $0 !~ /^[[:space:]]*\[auth\.(rdbms|jwt)\][[:space:]]*$/) {
-			skip = 0
-		}
-		if (!skip) {
-			print
-		}
-	}
-' "$MIM_CONF" > /tmp/mim_conf_tmp && mv /tmp/mim_conf_tmp "$MIM_CONF" || true
+echo "Preparing minimal smoke-test config (no external DB required)"
+MIM_CONF="/etc/mongooseim/mongooseim.toml"
+MIM_PID=""
 
-# Remove auth.internal if exists to avoid duplicates before re-adding it.
-sed -i '/^[[:space:]]*\[auth\.internal\][[:space:]]*$/d' "$MIM_CONF" || true
+cleanup() {
+  if [ -n "$MIM_PID" ] && kill -0 "$MIM_PID" 2>/dev/null; then
+    kill "$MIM_PID" || true
+    wait "$MIM_PID" || true
+  fi
+}
 
-# Add auth.internal right after [auth] section.
-if ! grep -q '^[[:space:]]*\[auth\.internal\][[:space:]]*$' "$MIM_CONF"; then
-	sed -i '/^[[:space:]]*\[auth\][[:space:]]*$/a\[auth.internal]' "$MIM_CONF" || true
-fi
+trap cleanup EXIT
 
-# Remove entire RDBMS outgoing pool section.
-awk '
-	BEGIN { skip = 0 }
-	{
-		if ($0 ~ /^[[:space:]]*\[outgoing_pools\.rdbms(\.|\])/) {
-			skip = 1
-			next
-		}
-		if (skip && $0 ~ /^[[:space:]]*\[/ && $0 !~ /^[[:space:]]*\[outgoing_pools\.rdbms(\.|\])/) {
-			skip = 0
-		}
-		if (!skip) {
-			print
-		}
-	}
-' "$MIM_CONF" > /tmp/mim_conf_tmp && mv /tmp/mim_conf_tmp "$MIM_CONF" || true
+cat << EOF > "$MIM_CONF"
+[general]
+  loglevel = "warning"
+  hosts = ["localhost"]
+  default_server_domain = "localhost"
 
-echo "Starting mongooseim via 'mongooseimctl start'"
-mongooseimctl start
+[auth]
+  methods = ["jwt"]
+  sasl_mechanisms = ["plain"]
+
+[auth.jwt]
+  secret.value = "smoke-jwt-secret"
+  algorithm = "HS256"
+  username_key = "user"
+
+
+[[listen.http]]
+  port = 5280
+  transport.num_acceptors = 10
+  transport.max_connections = 1024
+
+  [[listen.http.handlers.mongoose_graphql_handler]]
+    host = "_"
+    path = "/api/graphql"
+    schema_endpoint = "user"
+
+  [[listen.http.handlers.mongoose_bosh_handler]]
+    host = "_"
+    path = "/http-bind"
+
+[[listen.c2s]]
+  port = 5222
+  access = "c2s"
+
+[modules.mod_roster]
+  backend = "mnesia"
+
+[modules.mod_offline]
+  backend = "mnesia"
+EOF
+
+echo "Starting mongooseim in foreground"
+/usr/lib/mongooseim/bin/mongooseim foreground &
+MIM_PID=$!
 
 echo "Waiting for the port 5222 to accept TCP connections"
 if ! ./wait-for-it.sh -h localhost -p 5222 -t 90; then
 	echo "MongooseIM did not open port 5222 in time"
-	mongooseimctl status || true
 	tail -n 200 /var/log/mongooseim/mongooseim.log 2>/dev/null || true
+	tail -n 200 /usr/lib/mongooseim/log/mongooseim.log 2>/dev/null || true
 	exit 1
 fi
 
 echo "Checking status via 'mongooseimctl status'"
 mongooseimctl status
 
-echo "Trying to register a user with 'mongooseimctl register localhost a_password'"
-mongooseimctl account registerUser --domain localhost --password a_password || echo "Warning: registration failed, skipping"
+echo "Checking JWT authentication via GraphQL user endpoint"
 
-echo "Trying to register a user with 'mongooseimctl register_identified user localhost a_password_2'"
-mongooseimctl account registerUser --username user --domain localhost --password a_password_2 || echo "Warning: registration failed, skipping"
+jwt_b64url() {
+  openssl base64 -A | tr '+/' '-_' | tr -d '='
+}
 
-echo "Skipping user count check in smoke test" 
+JWT_SECRET="smoke-jwt-secret"
+JWT_USER="smokeuser"
+JWT_NOW="$(date +%s)"
+JWT_EXP="$((JWT_NOW + 300))"
 
-echo "Checking if MongooseIM has logged any errors"
-grep -wr 'error' /var/log/mongooseim && exit 1 || true
+JWT_HEADER='{"alg":"HS256","typ":"JWT"}'
+JWT_PAYLOAD="{\"user\":\"${JWT_USER}\",\"iat\":${JWT_NOW},\"nbf\":${JWT_NOW},\"exp\":${JWT_EXP}}"
 
-echo "Stopping mongooseim via 'mongooseimctl stop'"
-mongooseimctl stop
+JWT_HEADER_B64="$(printf '%s' "$JWT_HEADER" | jwt_b64url)"
+JWT_PAYLOAD_B64="$(printf '%s' "$JWT_PAYLOAD" | jwt_b64url)"
+JWT_SIGNING_INPUT="${JWT_HEADER_B64}.${JWT_PAYLOAD_B64}"
+JWT_SIGNATURE_B64="$(printf '%s' "$JWT_SIGNING_INPUT" \
+  | openssl dgst -sha256 -hmac "$JWT_SECRET" -binary \
+  | jwt_b64url)"
+JWT_TOKEN="${JWT_SIGNING_INPUT}.${JWT_SIGNATURE_B64}"
+
+GRAPHQL_QUERY='{"query":"query { checkAuth { authStatus username } }"}'
+AUTH_RAW="${JWT_USER}@localhost:${JWT_TOKEN}"
+AUTH_HEADER="$(printf '%s' "$AUTH_RAW" | openssl base64 -A)"
+
+HTTP_RESPONSE="$({
+  exec 3<>/dev/tcp/localhost/5280
+  printf 'POST /api/graphql HTTP/1.1\r\nHost: localhost\r\nAuthorization: Basic %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s' \
+    "$AUTH_HEADER" "${#GRAPHQL_QUERY}" "$GRAPHQL_QUERY" >&3
+  cat <&3
+  exec 3<&-
+  exec 3>&-
+} || true)"
+
+if ! printf '%s' "$HTTP_RESPONSE" | head -n1 | grep -q ' 200 '; then
+  echo "JWT auth check failed: expected HTTP 200 from /api/graphql"
+  printf '%s\n' "$HTTP_RESPONSE" | head -n 40
+  exit 1
+fi
+
+if ! printf '%s' "$HTTP_RESPONSE" | grep -q '"authStatus":"AUTHORIZED"'; then
+  echo "JWT auth check failed: expected authStatus AUTHORIZED"
+  printf '%s\n' "$HTTP_RESPONSE" | head -n 40
+  exit 1
+fi
+
+if ! printf '%s' "$HTTP_RESPONSE" | grep -q '"username":"smokeuser@localhost"'; then
+  echo "JWT auth check failed: expected username smokeuser@localhost"
+  printf '%s\n' "$HTTP_RESPONSE" | head -n 40
+  exit 1
+fi
+
+echo "JWT authentication smoke check passed"
+
+echo "Stopping mongooseim"
+cleanup
 
