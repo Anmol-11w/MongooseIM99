@@ -164,10 +164,10 @@
   workers = 5
 
 [outgoing_pools.http.ai_bot.connection]
-  host = "https://api.groq.com"
-  path_prefix = "/openai/v1"
+  host = "https://generativelanguage.googleapis.com"
+  path_prefix = "/v1beta"
   request_timeout = 30000
-  tls.verify_mode = "peer"
+  tls.verify_mode = "none"
 
 [outgoing_pools.rdbms.default]
   scope = "global"
@@ -196,6 +196,14 @@
 {{/service_domain_db}}
 [services.service_mongoose_system_metrics]
 
+[modules.mod_sasl2]
+
+[modules.mod_bind2]
+
+[modules.mod_fast_auth_token]
+  validity_period.access = {value = 3, unit = "days"}
+  validity_period.rotate_before_expire = {value = 6, unit = "hours"}
+
 [modules.mod_adhoc]
 
 # [services.service_traffic]
@@ -215,6 +223,18 @@
 [modules.mod_last]
 {{{mod_last}}}
 {{/mod_last}}
+[modules.mod_offline_stub]
+
+[modules.mod_mam]
+  backend = "rdbms"
+
+  [modules.mod_mam.pm]
+    archive_chat_markers = true
+
+[modules.mod_inbox]
+  backend = "rdbms"
+  reset_markers = ["displayed"]
+
 [modules.mod_stream_management]
   {{#stream_management_backend}}
   backend = "{{{stream_management_backend}}}"
@@ -263,26 +283,24 @@
   add_to_roster = true
 
 [modules.mod_ai_bot]
-  provider = "groq"
+  provider = "gemini"
   pool_tag = "ai_bot"
-  api_key = "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"
+  api_key = "AIzaSyA4K3T8ONLUDDEhOFNdJz75X9EcbB1YhhU"
   bot_username = "assistant"
-  model = "llama-3.3-70b-versatile"
+  model = "gemini-2.0-flash"
   max_tokens = 8192
   system_prompt = "You are a DevOps expert. Help with infrastructure, CI/CD, and deployment."
 
 [modules.mod_ai_bot_voice]
   pool_tag = "ai_bot"
-  api_key = "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"
+  api_key = "AIzaSyA4K3T8ONLUDDEhOFNdJz75X9EcbB1YhhU"
   bot_username = "voiceagent"
   audio_dir = "/tmp/voice_audio"
   audio_base_url = "http://localhost:5280/voice-audio"
-  stt_model = "whisper-large-v3-turbo"
-  llm_model = "llama-3.3-70b-versatile"
-  tts_model = "canopylabs/orpheus-v1-english"
-  tts_voice = "diana"
+  llm_model = "gemini-2.0-flash"
+  tts_model = "gemini-2.5-flash"
+  tts_voice = "Kore"
   max_tokens = 4096
-  response_format = "wav"
   system_prompt = "You are a professional customer service agent. Answer questions clearly and concisely. Keep responses brief (2-3 sentences) since they will be spoken aloud. Use natural conversational language."
 
 {{{instrumentation}}}

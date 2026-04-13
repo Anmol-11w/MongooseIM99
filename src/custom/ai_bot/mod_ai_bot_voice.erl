@@ -3,8 +3,13 @@
 %%% @copyright (C) 2026, Wingtrill
 %%% @doc Real-time voice customer agent module for MongooseIM.
 %%%
-%%% Implements a full voice pipeline using Groq APIs:
-%%%   Audio In → STT (Whisper) → LLM (LLaMA) → TTS (Orpheus) → Audio Out
+%%% Implements a voice pipeline using Google Gemini APIs:
+%%%   Audio In → Gemini Multimodal (STT+LLM) → Gemini TTS → Audio Out
+%%%   Text In  → Gemini LLM → Gemini TTS → Audio Out
+%%%
+%%% The audio input path sends audio directly to Gemini's multimodal
+%%% generateContent endpoint, which understands audio natively — no
+%%% separate STT step needed. TTS uses Gemini's audio output modality.
 %%%
 %%% Clients send audio data as base64 in a custom <audio> element.
 %%% The module processes it through the pipeline and responds with
@@ -26,22 +31,20 @@
 %%%     </message>
 %%%
 %%% Text-only fallback: if a <body> is sent instead of <audio>,
-%%% the STT step is skipped and the text goes directly to LLM → TTS.
+%%% the audio understanding step is skipped and text goes to LLM → TTS.
 %%%
 %%% Configuration (mongooseim.toml):
 %%%
 %%%   [modules.mod_ai_bot_voice]
 %%%     pool_tag = "ai_bot"
-%%%     api_key = "gsk_..."
+%%%     api_key = "AIza..."
 %%%     bot_username = "voiceagent"
 %%%     audio_dir = "/tmp/voice_audio"
 %%%     audio_base_url = "http://localhost:5280/voice-audio"
-%%%     stt_model = "whisper-large-v3-turbo"
-%%%     llm_model = "llama-3.3-70b-versatile"
-%%%     tts_model = "canopylabs/orpheus-v1-english"
-%%%     tts_voice = "diana"
+%%%     llm_model = "gemini-2.0-flash"
+%%%     tts_model = "gemini-2.5-flash"
+%%%     tts_voice = "Kore"
 %%%     max_tokens = 4096
-%%%     response_format = "wav"
 %%%     system_prompt = "You are a customer service agent..."
 %%% @end
 %%%==============================================================================
@@ -90,24 +93,20 @@ config_spec() ->
             <<"api_key">> => #option{type = binary},
             <<"audio_dir">> => #option{type = binary},
             <<"audio_base_url">> => #option{type = binary},
-            <<"stt_model">> => #option{type = binary},
             <<"llm_model">> => #option{type = binary},
             <<"tts_model">> => #option{type = binary},
             <<"tts_voice">> => #option{type = binary},
             <<"max_tokens">> => #option{type = integer, validate = positive},
-            <<"response_format">> => #option{type = binary},
             <<"system_prompt">> => #option{type = binary}
         },
         defaults = #{
             <<"bot_username">> => <<"voiceagent">>,
             <<"audio_dir">> => <<"/tmp/voice_audio">>,
             <<"audio_base_url">> => <<"http://localhost:5280/voice-audio">>,
-            <<"stt_model">> => <<"whisper-large-v3-turbo">>,
-            <<"llm_model">> => <<"llama-3.3-70b-versatile">>,
-            <<"tts_model">> => <<"canopylabs/orpheus-v1-english">>,
-            <<"tts_voice">> => <<"diana">>,
+            <<"llm_model">> => <<"gemini-2.0-flash">>,
+            <<"tts_model">> => <<"gemini-2.5-flash">>,
+            <<"tts_voice">> => <<"Kore">>,
             <<"max_tokens">> => 4096,
-            <<"response_format">> => <<"wav">>,
             <<"system_prompt">> => default_system_prompt()
         },
         required = [<<"pool_tag">>, <<"api_key">>]
@@ -146,7 +145,6 @@ handle_voice_message(Acc, HostType, Packet) ->
         {ok, AudioData, Format} ->
             process_voice_pipeline(Acc, HostType, {audio, AudioData, Format});
         no_audio ->
-            %% Fall back to text-only: skip STT, go LLM → TTS
             case exml_query:subelement(Packet, <<"body">>) of
                 #xmlel{} = BodyElem ->
                     Body = exml_query:cdata(BodyElem),
@@ -157,7 +155,7 @@ handle_voice_message(Acc, HostType, Packet) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Voice pipeline: STT → LLM → TTS
+%% Voice pipeline: Gemini Multimodal → Gemini TTS
 %%--------------------------------------------------------------------
 
 -spec process_voice_pipeline(mongoose_acc:t(), mongooseim:host_type(),
@@ -167,43 +165,43 @@ process_voice_pipeline(Acc, _HostType, {text, <<>>}) ->
     {ok, Acc};
 process_voice_pipeline(Acc, HostType, Input) ->
     {From, To, _Packet} = mongoose_acc:packet(Acc),
-    case run_pipeline(HostType, Input) of
-        {ok, ResponseText, AudioBytes} ->
-            send_voice_reply(From, To, HostType, ResponseText, AudioBytes),
-            {stop, Acc};
-        {error, Stage, Reason} ->
-            ?LOG_ERROR(#{what => ai_bot_voice_error,
-                         stage => Stage,
-                         reason => Reason,
-                         host_type => HostType}),
-            ErrorMsg = stage_error_message(Stage),
-            send_text_reply(From, To, ErrorMsg),
-            {stop, Acc}
-    end.
+    spawn(fun() ->
+        try
+            case run_pipeline(HostType, Input) of
+                {ok, ResponseText, AudioBytes} ->
+                    send_voice_reply(From, To, HostType, ResponseText, AudioBytes);
+                {error, Stage, Reason} ->
+                    ?LOG_ERROR(#{what => ai_bot_voice_error,
+                                 stage => Stage,
+                                 reason => Reason,
+                                 host_type => HostType}),
+                    ErrorMsg = stage_error_message(Stage),
+                    send_text_reply(From, To, ErrorMsg)
+            end
+        catch
+            Class:Error:Stack ->
+                ?LOG_ERROR(#{what => ai_bot_voice_crash,
+                             class => Class,
+                             reason => Error,
+                             stacktrace => Stack,
+                             host_type => HostType}),
+                send_text_reply(From, To,
+                    <<"Sorry, something went wrong. Please try again.">>)
+        end
+    end),
+    {stop, Acc}.
 
 -spec run_pipeline(mongooseim:host_type(),
                    {audio, binary(), binary()} | {text, binary()}) ->
     {ok, binary(), binary()} | {error, atom(), any()}.
-run_pipeline(HostType, {audio, AudioData, Format}) ->
-    case call_stt(HostType, AudioData, Format) of
-        {ok, Transcription} ->
-            ?LOG_INFO(#{what => ai_bot_voice_stt_done,
-                        transcription => Transcription}),
-            run_llm_tts(HostType, Transcription);
-        {error, Reason} ->
-            {error, stt, Reason}
-    end;
-run_pipeline(HostType, {text, UserText}) ->
-    run_llm_tts(HostType, UserText).
-
--spec run_llm_tts(mongooseim:host_type(), binary()) ->
-    {ok, binary(), binary()} | {error, atom(), any()}.
-run_llm_tts(HostType, UserText) ->
-    case call_llm(HostType, UserText) of
+run_pipeline(HostType, Input) ->
+    %% Step 1: Understand input (audio or text) → get text response
+    case call_gemini_llm(HostType, Input) of
         {ok, ResponseText} ->
             ?LOG_INFO(#{what => ai_bot_voice_llm_done,
                         response_length => byte_size(ResponseText)}),
-            case call_tts(HostType, ResponseText) of
+            %% Step 2: Convert response text → audio
+            case call_gemini_tts(HostType, ResponseText) of
                 {ok, AudioBytes} ->
                     {ok, ResponseText, AudioBytes};
                 {error, Reason} ->
@@ -214,103 +212,33 @@ run_llm_tts(HostType, UserText) ->
     end.
 
 %%--------------------------------------------------------------------
-%% STT: Groq Whisper API (multipart/form-data)
+%% Gemini LLM: Multimodal generateContent (handles both audio + text)
 %%--------------------------------------------------------------------
 
--spec call_stt(mongooseim:host_type(), binary(), binary()) ->
+-spec call_gemini_llm(mongooseim:host_type(),
+                      {audio, binary(), binary()} | {text, binary()}) ->
     {ok, binary()} | {error, any()}.
-call_stt(HostType, AudioData, Format) ->
-    ApiKey = gen_mod:get_module_opt(HostType, ?MODULE, api_key),
-    SttModel = gen_mod:get_module_opt(HostType, ?MODULE, stt_model),
-    PoolTag = gen_mod:get_module_opt(HostType, ?MODULE, pool_tag),
-    {ContentType, Body} = build_multipart(AudioData, SttModel, Format),
-    Path = <<"/audio/transcriptions">>,
-    Headers = [
-        {<<"authorization">>, <<"Bearer ", ApiKey/binary>>},
-        {<<"content-type">>, ContentType}
-    ],
-    case mongoose_http_client:post(global, PoolTag, Path, Headers, Body) of
-        {ok, {<<"200">>, RespBody}} ->
-            parse_stt_response(RespBody);
-        {ok, {Code, RespBody}} ->
-            ?LOG_WARNING(#{what => ai_bot_voice_stt_http_error,
-                           response_code => Code,
-                           response_body => RespBody}),
-            {error, {http_error, Code}};
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
--spec build_multipart(binary(), binary(), binary()) ->
-    {binary(), binary()}.
-build_multipart(AudioData, Model, Format) ->
-    Boundary = <<"----VoiceBotBoundary",
-                 (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
-    MimeType = audio_mime_type(Format),
-    Body = iolist_to_binary([
-        <<"--">>, Boundary, <<"\r\n">>,
-        <<"Content-Disposition: form-data; name=\"file\"; filename=\"audio.">>,
-        Format, <<"\"\r\n">>,
-        <<"Content-Type: ">>, MimeType, <<"\r\n\r\n">>,
-        AudioData, <<"\r\n">>,
-        <<"--">>, Boundary, <<"\r\n">>,
-        <<"Content-Disposition: form-data; name=\"model\"\r\n\r\n">>,
-        Model, <<"\r\n">>,
-        <<"--">>, Boundary, <<"\r\n">>,
-        <<"Content-Disposition: form-data; name=\"response_format\"\r\n\r\n">>,
-        <<"json\r\n">>,
-        <<"--">>, Boundary, <<"--\r\n">>
-    ]),
-    ContentType = <<"multipart/form-data; boundary=", Boundary/binary>>,
-    {ContentType, Body}.
-
--spec parse_stt_response(binary()) -> {ok, binary()} | {error, any()}.
-parse_stt_response(RespBody) ->
-    try
-        #{<<"text">> := Text} = jiffy:decode(RespBody, [return_maps]),
-        {ok, Text}
-    catch
-        _:Reason ->
-            {error, {stt_parse_error, Reason}}
-    end.
-
--spec audio_mime_type(binary()) -> binary().
-audio_mime_type(<<"wav">>) -> <<"audio/wav">>;
-audio_mime_type(<<"mp3">>) -> <<"audio/mpeg">>;
-audio_mime_type(<<"ogg">>) -> <<"audio/ogg">>;
-audio_mime_type(<<"webm">>) -> <<"audio/webm">>;
-audio_mime_type(<<"flac">>) -> <<"audio/flac">>;
-audio_mime_type(<<"m4a">>) -> <<"audio/mp4">>;
-audio_mime_type(_) -> <<"application/octet-stream">>.
-
-%%--------------------------------------------------------------------
-%% LLM: Groq Chat Completions API
-%%--------------------------------------------------------------------
-
--spec call_llm(mongooseim:host_type(), binary()) ->
-    {ok, binary()} | {error, any()}.
-call_llm(HostType, UserMessage) ->
+call_gemini_llm(HostType, Input) ->
     ApiKey = gen_mod:get_module_opt(HostType, ?MODULE, api_key),
     LlmModel = gen_mod:get_module_opt(HostType, ?MODULE, llm_model),
     MaxTokens = gen_mod:get_module_opt(HostType, ?MODULE, max_tokens),
     SystemPrompt = gen_mod:get_module_opt(HostType, ?MODULE, system_prompt),
     PoolTag = gen_mod:get_module_opt(HostType, ?MODULE, pool_tag),
-    Path = <<"/chat/completions">>,
-    Headers = [
-        {<<"authorization">>, <<"Bearer ", ApiKey/binary>>},
-        {<<"content-type">>, <<"application/json">>}
-    ],
+    Path = <<"/models/", LlmModel/binary, ":generateContent?key=", ApiKey/binary>>,
+    Headers = [{<<"content-type">>, <<"application/json">>}],
+    Parts = build_input_parts(Input),
     Payload = jiffy:encode(#{
-        <<"model">> => LlmModel,
-        <<"max_tokens">> => MaxTokens,
-        <<"messages">> => [
-            #{<<"role">> => <<"system">>, <<"content">> => SystemPrompt},
-            #{<<"role">> => <<"user">>, <<"content">> => UserMessage}
-        ]
+        <<"system_instruction">> => #{
+            <<"parts">> => [#{<<"text">> => SystemPrompt}]
+        },
+        <<"contents">> => [#{<<"parts">> => Parts}],
+        <<"generationConfig">> => #{
+            <<"maxOutputTokens">> => MaxTokens
+        }
     }),
     case mongoose_http_client:post(global, PoolTag, Path, Headers, Payload) of
         {ok, {<<"200">>, RespBody}} ->
-            parse_llm_response(RespBody);
+            parse_gemini_text_response(RespBody);
         {ok, {Code, RespBody}} ->
             ?LOG_WARNING(#{what => ai_bot_voice_llm_http_error,
                            response_code => Code,
@@ -320,43 +248,60 @@ call_llm(HostType, UserMessage) ->
             {error, Reason}
     end.
 
--spec parse_llm_response(binary()) -> {ok, binary()} | {error, any()}.
-parse_llm_response(RespBody) ->
+-spec build_input_parts({audio, binary(), binary()} | {text, binary()}) -> [map()].
+build_input_parts({audio, AudioData, Format}) ->
+    MimeType = audio_mime_type(Format),
+    [#{<<"inline_data">> => #{
+        <<"mime_type">> => MimeType,
+        <<"data">> => base64:encode(AudioData)
+    }},
+     #{<<"text">> => <<"Please respond to the user's audio message.">>}];
+build_input_parts({text, UserText}) ->
+    [#{<<"text">> => UserText}].
+
+-spec parse_gemini_text_response(binary()) -> {ok, binary()} | {error, any()}.
+parse_gemini_text_response(RespBody) ->
     try
-        #{<<"choices">> := [#{<<"message">> := #{<<"content">> := Text}} | _]} =
+        #{<<"candidates">> := [#{<<"content">> := #{<<"parts">> := Parts}} | _]} =
             jiffy:decode(RespBody, [return_maps]),
-        {ok, Text}
+        Texts = [T || #{<<"text">> := T} <- Parts],
+        {ok, iolist_to_binary(lists:join(<<"\n">>, Texts))}
     catch
         _:Reason ->
-            {error, {llm_parse_error, Reason}}
+            {error, {parse_error, Reason}}
     end.
 
 %%--------------------------------------------------------------------
-%% TTS: Groq PlayAI API
+%% Gemini TTS: generateContent with audio output modality
 %%--------------------------------------------------------------------
 
--spec call_tts(mongooseim:host_type(), binary()) ->
+-spec call_gemini_tts(mongooseim:host_type(), binary()) ->
     {ok, binary()} | {error, any()}.
-call_tts(HostType, Text) ->
+call_gemini_tts(HostType, Text) ->
     ApiKey = gen_mod:get_module_opt(HostType, ?MODULE, api_key),
     TtsModel = gen_mod:get_module_opt(HostType, ?MODULE, tts_model),
     TtsVoice = gen_mod:get_module_opt(HostType, ?MODULE, tts_voice),
-    ResponseFormat = gen_mod:get_module_opt(HostType, ?MODULE, response_format),
     PoolTag = gen_mod:get_module_opt(HostType, ?MODULE, pool_tag),
-    Path = <<"/audio/speech">>,
-    Headers = [
-        {<<"authorization">>, <<"Bearer ", ApiKey/binary>>},
-        {<<"content-type">>, <<"application/json">>}
-    ],
+    Path = <<"/models/", TtsModel/binary, ":generateContent?key=", ApiKey/binary>>,
+    Headers = [{<<"content-type">>, <<"application/json">>}],
     Payload = jiffy:encode(#{
-        <<"model">> => TtsModel,
-        <<"input">> => Text,
-        <<"voice">> => TtsVoice,
-        <<"response_format">> => ResponseFormat
+        <<"contents">> => [#{
+            <<"parts">> => [#{<<"text">> => <<"Say aloud: ", Text/binary>>}]
+        }],
+        <<"generationConfig">> => #{
+            <<"response_modalities">> => [<<"AUDIO">>],
+            <<"speech_config">> => #{
+                <<"voice_config">> => #{
+                    <<"prebuilt_voice_config">> => #{
+                        <<"voice_name">> => TtsVoice
+                    }
+                }
+            }
+        }
     }),
     case mongoose_http_client:post(global, PoolTag, Path, Headers, Payload) of
-        {ok, {<<"200">>, AudioBytes}} ->
-            {ok, AudioBytes};
+        {ok, {<<"200">>, RespBody}} ->
+            parse_gemini_audio_response(RespBody);
         {ok, {Code, RespBody}} ->
             ?LOG_WARNING(#{what => ai_bot_voice_tts_http_error,
                            response_code => Code,
@@ -365,6 +310,30 @@ call_tts(HostType, Text) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+-spec parse_gemini_audio_response(binary()) -> {ok, binary()} | {error, any()}.
+parse_gemini_audio_response(RespBody) ->
+    try
+        #{<<"candidates">> := [#{<<"content">> := #{<<"parts">> := Parts}} | _]} =
+            jiffy:decode(RespBody, [return_maps]),
+        case find_audio_part(Parts) of
+            {ok, B64Audio} ->
+                {ok, base64:decode(B64Audio)};
+            not_found ->
+                {error, no_audio_in_response}
+        end
+    catch
+        _:Reason ->
+            {error, {parse_error, Reason}}
+    end.
+
+-spec find_audio_part([map()]) -> {ok, binary()} | not_found.
+find_audio_part([]) ->
+    not_found;
+find_audio_part([#{<<"inline_data">> := #{<<"data">> := Data}} | _]) ->
+    {ok, Data};
+find_audio_part([_ | Rest]) ->
+    find_audio_part(Rest).
 
 %%--------------------------------------------------------------------
 %% Audio element extraction
@@ -394,18 +363,15 @@ extract_audio(Packet) ->
 %%--------------------------------------------------------------------
 
 -spec send_voice_reply(jid:jid(), jid:jid(), mongooseim:host_type(),
-                       binary(), binary()) -> ok.
+                       binary(), binary()) -> mongoose_acc:t().
 send_voice_reply(OrigFrom, BotJid, HostType, ResponseText, AudioBytes) ->
-    ResponseFormat = gen_mod:get_module_opt(HostType, ?MODULE, response_format),
     AudioDir = gen_mod:get_module_opt(HostType, ?MODULE, audio_dir),
     AudioBaseUrl = gen_mod:get_module_opt(HostType, ?MODULE, audio_base_url),
-    %% Save audio to disk with unique filename
     Token = mongoose_bin:gen_from_timestamp(),
-    Filename = <<Token/binary, ".", ResponseFormat/binary>>,
+    Filename = <<Token/binary, ".wav">>,
     FilePath = filename:join(AudioDir, Filename),
     ok = file:write_file(FilePath, AudioBytes),
     AudioUrl = <<AudioBaseUrl/binary, "/", Filename/binary>>,
-    %% XEP-0066 Out-of-Band Data
     OobElem = #xmlel{
         name = <<"x">>,
         attrs = #{<<"xmlns">> => ?NS_OOB},
@@ -430,7 +396,7 @@ send_voice_reply(OrigFrom, BotJid, HostType, ResponseText, AudioBytes) ->
     },
     route_reply(OrigFrom, BotJid, ReplyEl).
 
--spec send_text_reply(jid:jid(), jid:jid(), binary()) -> ok.
+-spec send_text_reply(jid:jid(), jid:jid(), binary()) -> mongoose_acc:t().
 send_text_reply(OrigFrom, BotJid, Text) ->
     ReplyEl = #xmlel{
         name = <<"message">>,
@@ -447,7 +413,7 @@ send_text_reply(OrigFrom, BotJid, Text) ->
     },
     route_reply(OrigFrom, BotJid, ReplyEl).
 
--spec route_reply(jid:jid(), jid:jid(), exml:element()) -> ok.
+-spec route_reply(jid:jid(), jid:jid(), exml:element()) -> mongoose_acc:t().
 route_reply(OrigFrom, BotJid, ReplyEl) ->
     ejabberd_router:route(BotJid, OrigFrom,
                           mongoose_acc:new(#{from_jid => BotJid,
@@ -457,12 +423,23 @@ route_reply(OrigFrom, BotJid, ReplyEl) ->
                                             element => ReplyEl})).
 
 %%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
+-spec audio_mime_type(binary()) -> binary().
+audio_mime_type(<<"wav">>) -> <<"audio/wav">>;
+audio_mime_type(<<"mp3">>) -> <<"audio/mpeg">>;
+audio_mime_type(<<"ogg">>) -> <<"audio/ogg">>;
+audio_mime_type(<<"webm">>) -> <<"audio/webm">>;
+audio_mime_type(<<"flac">>) -> <<"audio/flac">>;
+audio_mime_type(<<"m4a">>) -> <<"audio/mp4">>;
+audio_mime_type(_) -> <<"application/octet-stream">>.
+
+%%--------------------------------------------------------------------
 %% Error messages per pipeline stage
 %%--------------------------------------------------------------------
 
 -spec stage_error_message(atom()) -> binary().
-stage_error_message(stt) ->
-    <<"Sorry, I couldn't understand the audio. Please try again or send a text message.">>;
 stage_error_message(llm) ->
     <<"Sorry, I'm unable to process your request right now. Please try again later.">>;
 stage_error_message(tts) ->

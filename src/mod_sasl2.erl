@@ -123,8 +123,7 @@ terminate(Reason, C2SState, C2SData) ->
 -spec c2s_stream_features(Acc, map(), gen_hook:extra()) -> {ok, Acc} when
     Acc :: [exml:element()].
 c2s_stream_features(Acc, #{c2s_data := C2SData}, _) ->
-    case is_ssl_connection(C2SData)
-         andalso lists:keyfind(<<"mechanisms">>, #xmlel.name, Acc) of
+    case lists:keyfind(<<"mechanisms">>, #xmlel.name, Acc) of
         false ->
             {ok, Acc};
         #xmlel{attrs = #{<<"xmlns">> := ?NS_SASL}, children = Mechanisms} ->
@@ -146,7 +145,7 @@ user_send_xmlel(Acc, Params, _Extra) ->
 -spec user_send_sasl2_element(mongoose_acc:t(), mongoose_c2s_hooks:params(), exml:element()) ->
      mongoose_c2s_hooks:result().
 user_send_sasl2_element(Acc, #{c2s_data := C2SData, c2s_state := C2SState}, El) ->
-    case is_not_sasl2_authenticated_already(C2SData) andalso is_ssl_connection(C2SData) of
+    case is_not_sasl2_authenticated_already(C2SData) of
         true ->
             %% We need to take control of the state machine to ensure no stanza
             %% out of the established protocol is processed
