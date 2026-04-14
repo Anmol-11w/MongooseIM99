@@ -31,10 +31,6 @@
     host = "_"
     path = "/ws-xmpp"
 
-  [[listen.http.handlers.mod_ai_bot_voice_http]]
-    host = "_"
-    path = "/voice-audio"
-    audio_dir = "/tmp/voice_audio"
 
 [[listen.http]]
   port = {{{https_port}}}
@@ -164,10 +160,11 @@
   workers = 5
 
 [outgoing_pools.http.ai_bot.connection]
-  host = "https://generativelanguage.googleapis.com"
-  path_prefix = "/v1beta"
+  host = "https://api.openai.com"
+  path_prefix = "/v1"
   request_timeout = 30000
   tls.verify_mode = "none"
+
 
 [outgoing_pools.rdbms.default]
   scope = "global"
@@ -291,18 +288,15 @@
   max_tokens = 8192
   system_prompt = "You are a DevOps expert. Help with infrastructure, CI/CD, and deployment."
 
-[modules.mod_ai_bot_voice]
-  provider = "openai"
+[modules.mod_ai_bot_call]
   pool_tag = "ai_bot"
   api_key = "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"
-  bot_username = "voiceagent"
-  audio_dir = "/tmp/voice_audio"
-  audio_base_url = "http://localhost:5280/voice-audio"
-  llm_model = "gpt-4o"
-  tts_model = "tts-1"
-  tts_voice = "alloy"
-  max_tokens = 4096
-  system_prompt = "You are a professional customer service agent. Answer questions clearly and concisely. Keep responses brief (2-3 sentences) since they will be spoken aloud. Use natural conversational language."
+  bot_username = "assistant"
+  model = "gpt-4o-realtime-preview"
+  voice = "alloy"
+  temperature = 0.8
+  max_response_output_tokens = 4096
+  call_prompt = "You are a professional customer service agent. Answer questions clearly and concisely. Keep responses brief (2-3 sentences) since this is a real-time voice call. Use natural conversational language."
 
 {{{instrumentation}}}
 

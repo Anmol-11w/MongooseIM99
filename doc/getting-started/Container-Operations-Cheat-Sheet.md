@@ -131,7 +131,7 @@ kubectl rollout status deployment/mim-mongooseim -n mim --timeout=300s
 Common places:
 
 - `src/custom/ai_bot/mod_ai_bot.erl`
-- `src/custom/ai_bot/mod_ai_bot_voice.erl`
+- `src/custom/ai_bot/mod_ai_bot_call.erl`
 - `helm/mongooseim/templates/deployment.yaml`
 - `helm/mongooseim/values.yaml`
 
