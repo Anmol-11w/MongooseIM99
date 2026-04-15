@@ -282,7 +282,7 @@
 [modules.mod_ai_bot]
   provider = "openai"
   pool_tag = "ai_bot"
-  api_key = "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"
+  api_key = "{{{ai_bot_api_key}}}
   bot_username = "assistant"
   model = "gpt-4o"
   max_tokens = 8192
@@ -290,7 +290,7 @@
 
 [modules.mod_ai_bot_call]
   pool_tag = "ai_bot"
-  api_key = "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"
+  api_key = "{{{ai_bot_api_key}}}
   bot_username = "assistant"
   model = "gpt-4o-realtime-preview"
   voice = "alloy"
