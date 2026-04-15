@@ -43,10 +43,12 @@ spec:
             - |
               set -e
               # Read config rendered into the image from rel/files/mongooseim.toml.
+              RELEASE_ETC_DIR="/usr/lib/mongooseim/etc"
+              CONF_DIR="/var/lib/mongooseim/etc"
               CONF_SRC="/etc/mongooseim/mongooseim.toml"
-              CONF="/var/lib/mongooseim/etc/mongooseim.toml"
-              VM_ARGS="/var/lib/mongooseim/etc/vm.args"
-              VM_DIST_ARGS="/var/lib/mongooseim/etc/vm.dist.args"
+              CONF="${CONF_DIR}/mongooseim.toml"
+              VM_ARGS="${CONF_DIR}/vm.args"
+              VM_DIST_ARGS="${CONF_DIR}/vm.dist.args"
               JWT_KEY_FILE="/var/lib/mongooseim/jwt_public_key.pem"
               sanitize_single_line() {
                 printf '%s' "$1" | tr -d '\r\n'
@@ -59,8 +61,19 @@ spec:
                 echo "❌ FATAL: source config not found at $CONF_SRC"
                 exit 1
               fi
-              mkdir -p "$(dirname "$CONF")"
+              if [[ ! -f "$RELEASE_ETC_DIR/vm.args" ]]; then
+                echo "❌ FATAL: release vm.args not found at $RELEASE_ETC_DIR/vm.args"
+                exit 1
+              fi
+              if [[ ! -f "$RELEASE_ETC_DIR/vm.dist.args" ]]; then
+                echo "❌ FATAL: release vm.dist.args not found at $RELEASE_ETC_DIR/vm.dist.args"
+                exit 1
+              fi
+
+              mkdir -p "$CONF_DIR"
               cp "$CONF_SRC" "$CONF"
+              cp "$RELEASE_ETC_DIR/vm.args" "$VM_ARGS"
+              cp "$RELEASE_ETC_DIR/vm.dist.args" "$VM_DIST_ARGS"
 
               export EJABBERD_CONFIG_PATH="$CONF"
               echo "Using source config: $CONF_SRC"
@@ -98,6 +111,9 @@ spec:
                   "$ERLANG_DIST_PORT" "$ERLANG_DIST_PORT" >> "$VM_DIST_ARGS"
               fi
               echo "✅ Erlang distribution configured"
+
+              cp "$VM_ARGS" "$RELEASE_ETC_DIR/vm.args"
+              cp "$VM_DIST_ARGS" "$RELEASE_ETC_DIR/vm.dist.args"
 
               # Keep default cert paths for local/dev.
               sed -E -i \
