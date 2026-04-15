@@ -1,6 +1,11 @@
 
 replicaCount: 2
 
+erlang:
+  nodePrefix: "mongooseim"
+  cookie: "mongooseim"
+  distPort: 52100
+
 image:
   repository: ghcr.io/anmol-11w/mongooseim99
   tag: "latest"

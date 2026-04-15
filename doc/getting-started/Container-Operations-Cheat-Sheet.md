@@ -180,7 +180,7 @@ kubectl rollout restart deployment/mim-mongooseim -n mim
 kubectl rollout status deployment/mim-mongooseim -n mim --timeout=300s
 ```
 
-### 6.3 Check PostgreSQL pod quickly
+### 6.3  PostgreSQL 
 
 ```bash
 # Inside Postgres
