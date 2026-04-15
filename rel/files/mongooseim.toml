@@ -31,10 +31,6 @@
     host = "_"
     path = "/ws-xmpp"
 
-  [[listen.http.handlers.mod_ai_bot_voice_http]]
-    host = "_"
-    path = "/voice-audio"
-    audio_dir = "/tmp/voice_audio"
 
 [[listen.http]]
   port = {{{https_port}}}
@@ -164,10 +160,11 @@
   workers = 5
 
 [outgoing_pools.http.ai_bot.connection]
-  host = "https://api.groq.com"
-  path_prefix = "/openai/v1"
+  host = "https://api.openai.com"
+  path_prefix = "/v1"
   request_timeout = 30000
-  tls.verify_mode = "peer"
+  tls.verify_mode = "none"
+
 
 [outgoing_pools.rdbms.default]
   scope = "global"
@@ -196,6 +193,14 @@
 {{/service_domain_db}}
 [services.service_mongoose_system_metrics]
 
+[modules.mod_sasl2]
+
+[modules.mod_bind2]
+
+[modules.mod_fast_auth_token]
+  validity_period.access = {value = 3, unit = "days"}
+  validity_period.rotate_before_expire = {value = 6, unit = "hours"}
+
 [modules.mod_adhoc]
 
 # [services.service_traffic]
@@ -215,6 +220,18 @@
 [modules.mod_last]
 {{{mod_last}}}
 {{/mod_last}}
+[modules.mod_offline_stub]
+
+[modules.mod_mam]
+  backend = "rdbms"
+
+  [modules.mod_mam.pm]
+    archive_chat_markers = true
+
+[modules.mod_inbox]
+  backend = "rdbms"
+  reset_markers = ["displayed"]
+
 [modules.mod_stream_management]
   {{#stream_management_backend}}
   backend = "{{{stream_management_backend}}}"
@@ -263,27 +280,23 @@
   add_to_roster = true
 
 [modules.mod_ai_bot]
-  provider = "groq"
+  provider = "openai"
   pool_tag = "ai_bot"
-  api_key = {{{ai_bot_api_key}}}
+  api_key = "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"
   bot_username = "assistant"
-  model = "llama-3.3-70b-versatile"
+  model = "gpt-4o"
   max_tokens = 8192
   system_prompt = "You are a DevOps expert. Help with infrastructure, CI/CD, and deployment."
 
-[modules.mod_ai_bot_voice]
+[modules.mod_ai_bot_call]
   pool_tag = "ai_bot"
-  api_key = {{{ai_bot_api_key}}}
-  bot_username = "voiceagent"
-  audio_dir = "/tmp/voice_audio"
-  audio_base_url = "http://localhost:5280/voice-audio"
-  stt_model = "whisper-large-v3-turbo"
-  llm_model = "llama-3.3-70b-versatile"
-  tts_model = "canopylabs/orpheus-v1-english"
-  tts_voice = "diana"
-  max_tokens = 4096
-  response_format = "wav"
-  system_prompt = "You are a professional customer service agent. Answer questions clearly and concisely. Keep responses brief (2-3 sentences) since they will be spoken aloud. Use natural conversational language."
+  api_key = "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"
+  bot_username = "assistant"
+  model = "gpt-4o-realtime-preview"
+  voice = "alloy"
+  temperature = 0.8
+  max_response_output_tokens = 4096
+  call_prompt = "You are a professional customer service agent. Answer questions clearly and concisely. Keep responses brief (2-3 sentences) since this is a real-time voice call. Use natural conversational language."
 
 {{{instrumentation}}}
 

@@ -187,8 +187,8 @@ spec:
                 echo "   Update rel/files/mongooseim.toml and deploy a new image"
                 exit 1
               fi
-              if ! grep -Eq '^\[modules\.mod_ai_bot_voice\]' "$CONF"; then
-                echo "❌ FATAL: [modules.mod_ai_bot_voice] missing in source config"
+              if ! grep -Eq '^\[modules\.mod_ai_bot_call\]' "$CONF"; then
+                echo "❌ FATAL: [modules.mod_ai_bot_call] missing in source config"
                 echo "   Update rel/files/mongooseim.toml and deploy a new image"
                 exit 1
               fi
@@ -202,11 +202,11 @@ spec:
 
                 AI_BOT_API_KEY_ESCAPED="$(escape_toml_string "$AI_BOT_API_KEY_CLEAN")"
                 awk -v api_key="$AI_BOT_API_KEY_ESCAPED" '
-                  BEGIN { in_ai_bot = 0; in_ai_bot_voice = 0 }
-                  /^\[modules\.mod_ai_bot\]/ { in_ai_bot = 1; in_ai_bot_voice = 0; print; next }
-                  /^\[modules\.mod_ai_bot_voice\]/ { in_ai_bot_voice = 1; in_ai_bot = 0; print; next }
-                  /^\[/ { in_ai_bot = 0; in_ai_bot_voice = 0 }
-                  (in_ai_bot || in_ai_bot_voice) && /^[[:space:]]*api_key[[:space:]]*=.*/ {
+                  BEGIN { in_ai_bot = 0; in_ai_bot_call = 0 }
+                  /^\[modules\.mod_ai_bot\]/ { in_ai_bot = 1; in_ai_bot_call = 0; print; next }
+                  /^\[modules\.mod_ai_bot_call\]/ { in_ai_bot_call = 1; in_ai_bot = 0; print; next }
+                  /^\[/ { in_ai_bot = 0; in_ai_bot_call = 0 }
+                  (in_ai_bot || in_ai_bot_call) && /^[[:space:]]*api_key[[:space:]]*=.*/ {
                     printf "  api_key = \"%s\"\n", api_key
                     next
                   }

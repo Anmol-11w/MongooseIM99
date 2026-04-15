@@ -39,7 +39,10 @@
 -export([start/2, stop/1, supported_features/0, config_spec/0, hooks/1]).
 
 %% Hook handlers
--export([user_send_message/3]).
+-export([user_send_message/3, user_available/3]).
+
+%% Macros
+-define(RATE_LIMIT_MS, 3000).
 
 %%--------------------------------------------------------------------
 %% gen_mod callbacks
@@ -47,6 +50,12 @@
 
 -spec start(mongooseim:host_type(), gen_mod:module_opts()) -> ok.
 start(_HostType, _Opts) ->
+    case ets:info(ai_bot_rate_limit) of
+        undefined ->
+            ets:new(ai_bot_rate_limit, [named_table, public, set, {read_concurrency, true}]);
+        _ ->
+            ok
+    end,
     ok.
 
 -spec stop(mongooseim:host_type()) -> ok.
@@ -68,21 +77,24 @@ config_spec() ->
             <<"api_key">> => #option{type = binary},
             <<"model">> => #option{type = binary},
             <<"max_tokens">> => #option{type = integer, validate = positive},
-            <<"system_prompt">> => #option{type = binary}
+            <<"system_prompt">> => #option{type = binary},
+            <<"welcome_message">> => #option{type = binary}
         },
         defaults = #{
             <<"provider">> => claude,
             <<"bot_username">> => <<"devbot">>,
             <<"model">> => <<"claude-sonnet-4-20250514">>,
             <<"max_tokens">> => 4096,
-            <<"system_prompt">> => default_system_prompt()
+            <<"system_prompt">> => default_system_prompt(),
+            <<"welcome_message">> => <<"Hey! I'm your AI assistant. Ask me anything!">>
         },
         required = [<<"pool_tag">>, <<"api_key">>]
     }.
 
 -spec hooks(mongooseim:host_type()) -> gen_hook:hook_list().
 hooks(HostType) ->
-    [{user_send_message, HostType, fun ?MODULE:user_send_message/3, #{}, 50}].
+    [{user_send_message, HostType, fun ?MODULE:user_send_message/3, #{}, 50},
+     {user_available, HostType, fun ?MODULE:user_available/3, #{}, 90}].
 
 %%--------------------------------------------------------------------
 %% Hook handlers
@@ -102,6 +114,17 @@ user_send_message(Acc, _Params, #{host_type := HostType}) ->
             {ok, Acc}
     end.
 
+%% Send a welcome message from the bot when user comes online
+-spec user_available(mongoose_acc:t(), map(), gen_hook:extra()) ->
+    {ok, mongoose_acc:t()}.
+user_available(Acc, #{jid := UserJid}, #{host_type := HostType}) ->
+    BotUsername = gen_mod:get_module_opt(HostType, ?MODULE, bot_username),
+    WelcomeMsg = gen_mod:get_module_opt(HostType, ?MODULE, system_prompt),
+    Server = UserJid#jid.lserver,
+    BotJid = jid:make_noprep(BotUsername, Server, <<>>),
+    send_reply(UserJid, BotJid, WelcomeMsg),
+    {ok, Acc}.
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -112,7 +135,15 @@ handle_bot_message(Acc, HostType, Packet) ->
     case exml_query:subelement(Packet, <<"body">>) of
         #xmlel{} = BodyElem ->
             Body = exml_query:cdata(BodyElem),
-            process_bot_query(Acc, HostType, Body);
+            {From, _To, _P} = mongoose_acc:packet(Acc),
+            case check_rate_limit(From) of
+                ok ->
+                    process_bot_query(Acc, HostType, Body);
+                rate_limited ->
+                    send_reply(From, element(2, mongoose_acc:packet(Acc)),
+                               <<"Please wait a moment before sending another message.">>),
+                    {stop, Acc}
+            end;
         undefined ->
             {ok, Acc}
     end.
@@ -123,18 +154,31 @@ process_bot_query(Acc, _HostType, <<>>) ->
     {ok, Acc};
 process_bot_query(Acc, HostType, UserMessage) ->
     {From, To, _Packet} = mongoose_acc:packet(Acc),
-    case call_ai_api(HostType, UserMessage) of
-        {ok, ResponseText} ->
-            send_reply(From, To, ResponseText),
-            {stop, Acc};
-        {error, Reason} ->
-            ?LOG_ERROR(#{what => ai_bot_api_error,
-                         reason => Reason,
-                         host_type => HostType}),
-            ErrorMsg = <<"Sorry, I'm unable to process your request right now. Please try again later.">>,
-            send_reply(From, To, ErrorMsg),
-            {stop, Acc}
-    end.
+    %% Spawn the API call in a separate process to avoid crashing the c2s process
+    spawn(fun() ->
+        try
+            case call_ai_api(HostType, UserMessage) of
+                {ok, ResponseText} ->
+                    send_reply(From, To, ResponseText);
+                {error, Reason} ->
+                    ?LOG_ERROR(#{what => ai_bot_api_error,
+                                 reason => Reason,
+                                 host_type => HostType}),
+                    ErrorMsg = <<"Sorry, I'm unable to process your request right now. Please try again later.">>,
+                    send_reply(From, To, ErrorMsg)
+            end
+        catch
+            Class:Error:Stack ->
+                ?LOG_ERROR(#{what => ai_bot_crash,
+                             class => Class,
+                             reason => Error,
+                             stacktrace => Stack,
+                             host_type => HostType}),
+                CrashMsg = <<"Sorry, something went wrong. Please try again.">>,
+                send_reply(From, To, CrashMsg)
+        end
+    end),
+    {stop, Acc}.
 
 -spec call_ai_api(mongooseim:host_type(), binary()) ->
     {ok, binary()} | {error, any()}.
@@ -263,6 +307,18 @@ parse_response_body(gemini, #{<<"candidates">> := [#{<<"content">> := #{<<"parts
     Texts = [T || #{<<"text">> := T} <- Parts],
     {ok, iolist_to_binary(lists:join(<<"\n">>, Texts))}.
 
+-spec check_rate_limit(jid:jid()) -> ok | rate_limited.
+check_rate_limit(From) ->
+    Key = jid:to_bare_binary(From),
+    Now = erlang:system_time(millisecond),
+    case ets:lookup(ai_bot_rate_limit, Key) of
+        [{_, LastTime}] when Now - LastTime < ?RATE_LIMIT_MS ->
+            rate_limited;
+        _ ->
+            ets:insert(ai_bot_rate_limit, {Key, Now}),
+            ok
+    end.
+
 -spec send_reply(jid:jid(), jid:jid(), binary()) -> mongoose_acc:t().
 send_reply(OrigFrom, BotJid, ResponseText) ->
     ReplyEl = #xmlel{
@@ -275,7 +331,12 @@ send_reply(OrigFrom, BotJid, ResponseText) ->
         },
         children = [
             #xmlel{name = <<"body">>,
-                   children = [#xmlcdata{content = ResponseText}]}
+                   children = [#xmlcdata{content = ResponseText}]},
+            %% XEP-0334: no-store hint — prevents MAM from archiving bot messages
+            #xmlel{name = <<"no-store">>,
+                   attrs = #{<<"xmlns">> => <<"urn:xmpp:hints">>}},
+            #xmlel{name = <<"no-permanent-store">>,
+                   attrs = #{<<"xmlns">> => <<"urn:xmpp:hints">>}}
         ]
     },
     ejabberd_router:route(BotJid, OrigFrom,
