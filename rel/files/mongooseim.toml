@@ -282,7 +282,7 @@
 [modules.mod_ai_bot]
   provider = "openai"
   pool_tag = "ai_bot"
-  api_key = "{{{ai_bot_api_key}}}
+  api_key = "{{{ai_bot_api_key}}}"
   bot_username = "assistant"
   model = "gpt-4o"
   max_tokens = 8192
@@ -290,7 +290,7 @@
 
 [modules.mod_ai_bot_call]
   pool_tag = "ai_bot"
-  api_key = "{{{ai_bot_api_key}}}
+  api_key = "{{{ai_bot_api_key}}}"
   bot_username = "assistant"
   model = "gpt-4o-realtime-preview"
   voice = "alloy"
