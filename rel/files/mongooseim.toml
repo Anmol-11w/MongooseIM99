@@ -279,6 +279,8 @@
   backend="rdbms"
   add_to_roster = true
 
+[modules.mod_jingle]
+
 [modules.mod_ai_bot]
   provider = "openai"
   pool_tag = "ai_bot"
