@@ -24,7 +24,9 @@ cd /opt/Mongooseim
 - `/usr/lib/mongooseim/bin/mongooseim` (runtime binary)
 - `/etc/mongooseim/mongooseim.toml` (base config copied into image)
 - `/etc/mongooseim.toml` (symlink to base config)
-- `/var/lib/mongooseim/etc/mongooseim.toml` (active config path)
+- `/etc/mongooseim/mongooseim.toml` (active config path inside the container)
+- `/etc/mongooseim/vm.args` (live Erlang node args)
+- `/etc/mongooseim/vm.dist.args` (live Erlang distribution args)
 - `/var/log/mongooseim/` (server logs)
 - `/var/lib/mongooseim/` (runtime state)
 - `/var/lock/mongooseim/` (lock files)
@@ -33,7 +35,7 @@ Quick check from Kubernetes:
 
 ```bash
 # check current toml file
-kubectl exec -it -n mim "$POD" -c mongooseim -- /bin/bash -lc 'cat /var/lib/mongooseim/etc/mongooseim.toml'
+kubectl exec -it -n mim "$POD" -c mongooseim -- /bin/bash -lc 'cat /etc/mongooseim/mongooseim.toml'
 ```
 
 ## 3. Kubernetes basics (current workflow)
