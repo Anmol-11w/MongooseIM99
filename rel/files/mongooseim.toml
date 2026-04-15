@@ -232,6 +232,12 @@
   backend = "rdbms"
   reset_markers = ["displayed"]
 
+[modules.mod_ping]
+  send_pings = true
+  ping_interval = 20
+  ping_req_timeout = 5
+  timeout_action = "kill"
+
 [modules.mod_stream_management]
   {{#stream_management_backend}}
   backend = "{{{stream_management_backend}}}"
