@@ -490,9 +490,7 @@ route(From, To, El) ->
 error_message(ephemeral_key) ->
     <<"Failed to create voice session. Please try again later.">>;
 error_message(sdp_exchange) ->
-    <<"Failed to establish voice connection. Please try again later.">>;
-error_message(_) ->
-    <<"Call setup failed. Please try again later.">>.
+    <<"Failed to establish voice connection. Please try again later.">>.
 
 %%--------------------------------------------------------------------
 %% Default call prompt
