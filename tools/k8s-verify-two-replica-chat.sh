@@ -90,13 +90,13 @@ detect_domain() {
   fi
 
   DOMAIN="$("$KUBECTL_BIN" -n "$NAMESPACE" exec "$POD_A" -c "$MIM_CONTAINER" -- bash -lc '
-    CONF="${EJABBERD_CONFIG_PATH:-/var/lib/mongooseim/etc/mongooseim.toml}"
+    CONF="${EJABBERD_CONFIG_PATH:-/etc/mongooseim/mongooseim.toml}"
     awk -F"\"" "/^[[:space:]]*default_server_domain[[:space:]]*=/ { print \$2; exit }" "$CONF"
   ' 2>/dev/null || true)"
 
   if [[ -z "$DOMAIN" ]]; then
     DOMAIN="$("$KUBECTL_BIN" -n "$NAMESPACE" exec "$POD_A" -c "$MIM_CONTAINER" -- bash -lc '
-      CONF="${EJABBERD_CONFIG_PATH:-/var/lib/mongooseim/etc/mongooseim.toml}"
+      CONF="${EJABBERD_CONFIG_PATH:-/etc/mongooseim/mongooseim.toml}"
       awk -F"\"" "/^[[:space:]]*hosts[[:space:]]*=/ { print \$2; exit }" "$CONF"
     ' 2>/dev/null || true)"
   fi
@@ -110,12 +110,12 @@ read_vm_arg() {
 
   if [[ "$flag" == "name" ]]; then
     "$KUBECTL_BIN" -n "$NAMESPACE" exec "$pod" -c "$MIM_CONTAINER" -- sh -lc \
-      "awk '/^-s?name[[:space:]]+/{print \$2; exit}' /var/lib/mongooseim/etc/vm.args"
+      "awk '/^-s?name[[:space:]]+/{print \$2; exit}' /etc/mongooseim/vm.args"
     return
   fi
 
   "$KUBECTL_BIN" -n "$NAMESPACE" exec "$pod" -c "$MIM_CONTAINER" -- sh -lc \
-    "awk '/^-${flag}[[:space:]]+/{print \$2; exit}' /var/lib/mongooseim/etc/vm.args"
+    "awk '/^-${flag}[[:space:]]+/{print \$2; exit}' /etc/mongooseim/vm.args"
 }
 
 verify_erlang_identity() {
