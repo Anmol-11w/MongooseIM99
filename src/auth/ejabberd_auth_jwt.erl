@@ -106,7 +106,16 @@ check_password(HostType, LUser, LServer, Password) ->
     LUserNorm = jid:str_tolower(LUser),
     BinAlg = mongoose_config:get_opt([{auth, HostType}, jwt, algorithm]),
     Alg = binary_to_atom(jid:str_tolower(BinAlg), utf8),
-    case jwerl:verify(Password, Alg, Key) of
+    %% jwerl:verify crashes on inputs that are not a well-formed JWT
+    %% (e.g. the SASL PLAIN placeholder sent when the HttpOnly cookie
+    %% is missing). Catch so a malformed token fails auth cleanly
+    %% instead of taking down the C2S process.
+    VerifyResult =
+        try jwerl:verify(Password, Alg, Key)
+        catch Class:CaughtReason:_ ->
+            {error, {Class, CaughtReason}}
+        end,
+    case VerifyResult of
         {ok, TokenData} ->
             UserKey = mongoose_config:get_opt([{auth,HostType}, jwt, username_key]),
             case get_claim_user(UserKey, TokenData) of
