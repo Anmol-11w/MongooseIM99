@@ -266,39 +266,15 @@ ctlexec ()
 {
     export BINDIR=$ERTS_PATH
     CONN_NAME=$1; shift
-    CTL_VM_DIST_ARGS_FILE="$RUNNER_ETC_DIR"/vm.dist.args
-    CTL_VM_DIST_ARGS_TMP=""
-
-    if [ -f "$CTL_VM_DIST_ARGS_FILE" ]; then
-        CTL_VM_DIST_ARGS_TMP=$(mktemp "${TMPDIR:-/tmp}/mongooseimctl-vm-dist.XXXXXX" 2>/dev/null || true)
-        if [ -n "$CTL_VM_DIST_ARGS_TMP" ]; then
-            # Keep transport settings (for example TLS), but let ctl pick a free dist port.
-            if sed -E '/^-kernel[[:space:]]+inet_dist_listen_(min|max)[[:space:]]+[0-9]+$/d' \
-                "$CTL_VM_DIST_ARGS_FILE" > "$CTL_VM_DIST_ARGS_TMP"; then
-                CTL_VM_DIST_ARGS_FILE="$CTL_VM_DIST_ARGS_TMP"
-            else
-                rm -f "$CTL_VM_DIST_ARGS_TMP"
-                CTL_VM_DIST_ARGS_TMP=""
-            fi
-        fi
-    fi
-
     $ERTS_PATH/erlexec \
       -boot "$MIM_DIR/releases/$APP_VSN/start_clean" \
       $NAME_TYPE ${CONN_NAME} \
       -noinput \
       -hidden \
       $COOKIE_ARG \
-      -args_file "$CTL_VM_DIST_ARGS_FILE" \
+      -args_file "$RUNNER_ETC_DIR"/vm.dist.args \
       -pa "$MIM_DIR"/lib/mongooseim-*/ebin/ \
       -s ejabberd_ctl -extra $NODENAME "$@"
-    result=$?
-
-    if [ -n "$CTL_VM_DIST_ARGS_TMP" ]; then
-        rm -f "$CTL_VM_DIST_ARGS_TMP"
-    fi
-
-    return $result
 }
 
 # display ctl usage
