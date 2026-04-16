@@ -18,3 +18,5 @@
 #              client_verify     verify_peer
 #              server_verify     verify_peer
 #              server_fail_if_no_peer_cert true
+-kernel inet_dist_listen_min 52100
+-kernel inet_dist_listen_max 52200
