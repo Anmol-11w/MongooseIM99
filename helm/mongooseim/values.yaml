@@ -5,6 +5,7 @@ erlang:
   nodePrefix: "mongooseim"
   cookie: "mongooseim"
   distPort: 52100
+  distPortMax: 52200
 
 image:
   repository: ghcr.io/anmol-11w/mongooseim99

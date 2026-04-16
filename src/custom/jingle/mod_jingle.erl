@@ -110,8 +110,5 @@ route(From, To, El) ->
 
 
 -spec set_attr(binary(), binary(), exml:element()) -> exml:element().
-set_attr(Key, Value, #xmlel{attrs = Attrs} = El) when is_map(Attrs) ->
-    El#xmlel{attrs = Attrs#{Key => Value}};
 set_attr(Key, Value, #xmlel{attrs = Attrs} = El) ->
-    NewAttrs = lists:keystore(Key, 1, Attrs, {Key, Value}),
-    El#xmlel{attrs = NewAttrs}.
+    El#xmlel{attrs = Attrs#{Key => Value}}.

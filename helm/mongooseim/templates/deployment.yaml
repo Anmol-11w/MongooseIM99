@@ -84,7 +84,17 @@ spec:
               ERLANG_NODE_PREFIX="{{ .Values.erlang.nodePrefix }}"
               ERLANG_NODE="${ERLANG_NODE_PREFIX}@${NODE_HOST}"
               ERLANG_COOKIE="$(sanitize_single_line "${MIM_ERLANG_COOKIE:-{{ .Values.erlang.cookie }}}")"
-              ERLANG_DIST_PORT="$(sanitize_single_line "${MIM_ERLANG_DIST_PORT:-{{ .Values.erlang.distPort }}}")"
+              ERLANG_DIST_PORT_MIN="$(sanitize_single_line "${MIM_ERLANG_DIST_PORT:-{{ .Values.erlang.distPort }}}")"
+              ERLANG_DIST_PORT_MAX="$(sanitize_single_line "${MIM_ERLANG_DIST_PORT_MAX:-{{ .Values.erlang.distPortMax }}}")"
+
+              if [[ ! "$ERLANG_DIST_PORT_MIN" =~ ^[0-9]+$ || ! "$ERLANG_DIST_PORT_MAX" =~ ^[0-9]+$ ]]; then
+                echo "❌ FATAL: Erlang distribution ports must be numeric"
+                exit 1
+              fi
+              if (( ERLANG_DIST_PORT_MIN > ERLANG_DIST_PORT_MAX )); then
+                echo "❌ FATAL: Erlang distribution min port must be <= max port"
+                exit 1
+              fi
 
               echo "🧩 Configuring Erlang node: $ERLANG_NODE"
               sed -E -i \
@@ -96,7 +106,7 @@ spec:
               if [[ -f "$VM_DIST_ARGS" ]]; then
                 sed -E -i '/^-kernel[[:space:]]+inet_dist_listen_(min|max)[[:space:]]+[0-9]+$/d' "$VM_DIST_ARGS"
                 printf -- "-kernel inet_dist_listen_min %s\n-kernel inet_dist_listen_max %s\n" \
-                  "$ERLANG_DIST_PORT" "$ERLANG_DIST_PORT" >> "$VM_DIST_ARGS"
+                  "$ERLANG_DIST_PORT_MIN" "$ERLANG_DIST_PORT_MAX" >> "$VM_DIST_ARGS"
               fi
               echo "✅ Erlang distribution configured"
 
@@ -417,6 +427,8 @@ spec:
               value: {{ .Values.erlang.cookie | quote }}
             - name: MIM_ERLANG_DIST_PORT
               value: {{ .Values.erlang.distPort | quote }}
+            - name: MIM_ERLANG_DIST_PORT_MAX
+              value: {{ .Values.erlang.distPortMax | quote }}
           {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
