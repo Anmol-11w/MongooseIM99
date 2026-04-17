@@ -51,7 +51,8 @@
                      conflict_behaviour => disconnect | kick_old,
                      %% WebSockets
                      peer => mongoose_transport:peer(),
-                     peer_cert => undefined | binary()
+                     peer_cert => undefined | binary(),
+                     cookie_jwt => undefined | binary()
                     }.
 
 -type id() :: {inet:port_number(), inet:ip_address(), tcp}.
