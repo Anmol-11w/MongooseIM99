@@ -1,5 +1,5 @@
 [general]
-  loglevel = "warning"
+  loglevel = "info"
   hosts = [{{{hosts}}}]
   host_types = [{{{host_types}}}]
   default_server_domain = {{{default_server_domain}}}
