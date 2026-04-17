@@ -149,8 +149,21 @@ check_password(HostType, LUser, LServer, Password) ->
             ?LOG_WARNING(#{what => jwt_verification_failed,
                            text => <<"Cannot verify JWT for user">>,
                            reason => Reason,
+                           password_length => byte_size(Password),
+                           password_dot_count => count_dots(Password),
+                           password_prefix => safe_prefix(Password, 8),
+                           alg => Alg,
                            user => LUser, server => LServer}),
             false
+    end.
+
+count_dots(Bin) when is_binary(Bin) ->
+    byte_size(Bin) - byte_size(binary:replace(Bin, <<".">>, <<>>, [global])).
+
+safe_prefix(Bin, N) when is_binary(Bin) ->
+    case byte_size(Bin) of
+        Size when Size =< N -> Bin;
+        _ -> binary:part(Bin, 0, N)
     end.
 
 
