@@ -290,7 +290,7 @@
 [modules.mod_ai_bot]
   provider = "openai"
   pool_tag = "ai_bot"
-  api_key = "{{{ai_bot_api_key}}}"
+  api_key = "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"
   bot_username = "assistant"
   model = "gpt-4o"
   max_tokens = 8192
@@ -298,13 +298,45 @@
 
 [modules.mod_ai_bot_call]
   pool_tag = "ai_bot"
-  api_key = "{{{ai_bot_api_key}}}"
+  api_key = "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"
   bot_username = "assistant"
   model = "gpt-4o-realtime-preview"
   voice = "alloy"
   temperature = 0.8
   max_response_output_tokens = 4096
   call_prompt = "You are a professional customer service agent. Answer questions clearly and concisely. Keep responses brief (2-3 sentences) since this is a real-time voice call. Use natural conversational language."
+
+[modules.mod_caps]
+
+[modules.mod_pubsub]
+  ignore_pep_from_offline = true
+  backend = "rdbms"
+  last_item_cache = "rdbms"
+  plugins = ["flat", "pep", "push"]
+  default_node_config = {access_model = "open"}
+  iqdisc.type = "queues"
+  iqdisc.workers = 50
+  wpool.workers = 10
+
+  [[modules.mod_pubsub.pep_mapping]]
+    namespace = "http://jabber.org/protocol/nick"
+    node = "nick"
+
+  [[modules.mod_pubsub.pep_mapping]]
+    namespace = "urn:xmpp:avatar:metadata"
+    node = "avatar_metadata"
+
+[modules.mod_http_upload]
+  host = "upload.@HOST@"
+  backend = "s3"
+  expiration_time = 120
+  max_file_size = 80428800
+
+[modules.mod_http_upload.s3]
+  bucket_url = "https://upload-files-opa.s3.ca-central-1.amazonaws.com"
+  region = "ca-central-1"
+  access_key_id = "AKIA5WWR24YGL3CXLNOI"
+  secret_access_key = "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"
 
 {{{instrumentation}}}
 
@@ -355,6 +387,10 @@
   ]
 
   register = [
+    {acl = "all", value = "allow"}
+  ]
+
+  pubsub_createnode = [
     {acl = "all", value = "allow"}
   ]
 

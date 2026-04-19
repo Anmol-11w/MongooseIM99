@@ -103,26 +103,32 @@ check_password(HostType, LUser, LServer, Password) ->
               Key1 when is_binary(Key1) -> Key1;
               {env, Var} -> list_to_binary(os:getenv(Var))
           end,
+    LUserNorm = custom_ejabberd_auth_jwt:normalize_login_user(LUser),
     BinAlg = mongoose_config:get_opt([{auth, HostType}, jwt, algorithm]),
     Alg = binary_to_atom(jid:str_tolower(BinAlg), utf8),
-    case jwerl:verify(Password, Alg, Key) of
+    case custom_ejabberd_auth_jwt:verify(Password, Alg, Key) of
         {ok, TokenData} ->
             UserKey = mongoose_config:get_opt([{auth,HostType}, jwt, username_key]),
-            case maps:find(UserKey, TokenData) of
-                {ok, LUser} ->
-                    %% Login username matches $token_user_key in TokenData
-                    ?LOG_INFO(#{what => jwt_success_auth,
-                                text => <<"Successfully authenticated with JWT">>,
-                                user => LUser, server => LServer,
-                                token => TokenData}),
-                    custom_ejabberd_auth_jwt:on_auth_success(HostType, LServer, LUser, TokenData),
-                    true;
-                {ok, ExpectedUser} ->
-                    ?LOG_WARNING(#{what => wrong_jwt_user,
-                                   text => <<"JWT contains wrond user">>,
-                                   expected_user => ExpectedUser,
-                                   user => LUser, server => LServer}),
-                    false;
+            case custom_ejabberd_auth_jwt:find_claim_user(UserKey, TokenData) of
+                {ok, ClaimUser} ->
+                    case custom_ejabberd_auth_jwt:normalize_claim_user(ClaimUser, LServer) of
+                        LUserNorm ->
+                            %% Login username matches $token_user_key in TokenData
+                            ?LOG_INFO(#{what => jwt_success_auth,
+                                        text => <<"Successfully authenticated with JWT">>,
+                                        user => LUser, server => LServer,
+                                        token => TokenData}),
+                            custom_ejabberd_auth_jwt:on_auth_success(HostType, LServer, LUser, TokenData),
+                            true;
+                        ClaimUserNorm ->
+                            ?LOG_WARNING(#{what => wrong_jwt_user,
+                                           text => <<"JWT contains wrong user">>,
+                                           expected_user => ClaimUser,
+                                           normalized_expected_user => ClaimUserNorm,
+                                           normalized_login_user => LUserNorm,
+                                           user => LUser, server => LServer}),
+                            false
+                    end;
                 error ->
                     ?LOG_WARNING(#{what => missing_jwt_key,
                                    text => <<"Missing key {user_key} in JWT data">>,

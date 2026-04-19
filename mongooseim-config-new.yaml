@@ -195,6 +195,35 @@ data:
       access_create = "muc_create"
       access_admin = "muc_admin"
 
+    [modules.mod_caps]
+
+    [modules.mod_pubsub]
+      access_createnode = "pubsub_createnode"
+      ignore_pep_from_offline = false
+      backend = "rdbms"
+      last_item_cache = "rdbms"
+      plugins = ["flat", "pep"]
+
+      [[modules.mod_pubsub.pep_mapping]]
+        namespace = "http://jabber.org/protocol/nick"
+        node = "nick"
+
+      [[modules.mod_pubsub.pep_mapping]]
+        namespace = "urn:xmpp:avatar:metadata"
+        node = "avatar_metadata"
+
+    [modules.mod_http_upload]
+      host = "upload.xmpp-mongo.wingtrill.com"
+      backend = "s3"
+      expiration_time = 120
+      max_file_size = 80428800
+
+      [modules.mod_http_upload.s3]
+        bucket_url = "https://taktide-taktide-com.s3.eu-central-003.backblazeb2.com"
+        region = "eu-central-003"
+        access_key_id = "00379a991a1fed5000000000c"
+        secret_access_key = "K003iuWR7TX6mB50+aCucmNHXxfD7xY"
+
     [instrumentation.prometheus]
 
     [instrumentation.log]
@@ -246,6 +275,10 @@ data:
       ]
 
       register = [
+        {acl = "all", value = "allow"}
+      ]
+
+      pubsub_createnode = [
         {acl = "all", value = "allow"}
       ]
 

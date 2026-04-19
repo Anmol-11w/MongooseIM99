@@ -541,3 +541,11 @@ CREATE INDEX i_phone_contacts_username
 
 CREATE INDEX idx_phone_contacts_last7
     ON phone_contacts(server, last7);
+
+CREATE TABLE user_privacy (
+    server VARCHAR(250) NOT NULL,
+    username VARCHAR(250) NOT NULL,
+    field VARCHAR(50) NOT NULL,
+    value VARCHAR(20) NOT NULL DEFAULT 'everyone',
+    PRIMARY KEY (server, username, field)
+);
