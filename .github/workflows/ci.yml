@@ -1,14 +1,14 @@
-name: CI
+name: main
 
 on:
   push:
-    branches: [ CI ]
+    branches: [ main ]
   pull_request:
-    branches: [ CI ]
+    branches: [ main ]
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: main-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -329,7 +329,7 @@ jobs:
     name: Deploy to production
     runs-on: ubuntu-22.04
     needs: docker_image
-    if: github.ref_name == 'CI'
+    if: github.ref_name == 'main'
 
     steps:
       - name: Deploy via SSH
@@ -456,7 +456,7 @@ jobs:
     name: Deploy monitoring stack
     runs-on: ubuntu-22.04
     needs: docker_image
-    if: github.ref_name == 'CI'
+    if: github.ref_name == 'main'
 
     steps:
       - uses: actions/checkout@v4
