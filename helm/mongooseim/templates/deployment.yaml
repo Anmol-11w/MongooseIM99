@@ -398,7 +398,22 @@ spec:
                 exit 1
               fi
 
-              echo "✅ All config checks passed — starting MongooseIM..."
+              echo "✅ All config checks passed"
+
+              # =============================
+              # CLUSTER JOIN LOGIC (AUTOJOIN)
+              # =============================
+              if [[ "{{ .Values.replicaCount }}" -gt 1 ]]; then
+                SELF=$(hostname -f)
+                # Get all peer pod hostnames from headless service, excluding self
+                PEERS=$(getent hosts mim-mongooseim-headless | awk '{print $2}' | grep -v "$SELF" || true)
+                for PEER in $PEERS; do
+                  echo "🔗 Attempting to join cluster with $PEER"
+                  /usr/lib/mongooseim/bin/mongooseimctl join_cluster mongooseim@$PEER || true
+                done
+              fi
+
+              echo "🚀 Starting MongooseIM..."
               exec /usr/lib/mongooseim/bin/mongooseim foreground
           {{- end }}
           {{- with .Values.securityContext }}
