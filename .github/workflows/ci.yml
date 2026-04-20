@@ -410,11 +410,11 @@ jobs:
             # ✅ Deploy new image via Helm
             echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
             helm upgrade --install mim ./helm/mongooseim \
-              --namespace "$MIM_NS" \
-              --reset-values \
-              --set image.repository="ghcr.io/anmol-11w/mongooseim99" \
-              --set image.tag="sha-${SHORT_SHA}" \
-              --set image.pullPolicy="Always"
+             --namespace "$MIM_NS" \
+             -f helm/mongooseim/values.yaml \
+             --set image.repository="ghcr.io/jaspreet-android/wingtrill-mongooseim" \
+             --set image.tag="sha-${SHORT_SHA}" \
+             --set image.pullPolicy="Always"
 
             # Force restart so new deployment.yaml startup script runs in pods
             echo "🔄 Restarting pods to apply new startup script..."
