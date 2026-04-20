@@ -411,7 +411,7 @@ jobs:
             echo "🚀 Deploying image: ghcr.io/jaspreet-android/wingtrill-mongooseim:sha-${SHORT_SHA}"
             helm upgrade --install mim ./helm/mongooseim \
               --namespace "$MIM_NS" \
-              --reset-values \
+              -f helm/mongooseim/values.yaml \
               --set image.repository="ghcr.io/jaspreet-android/wingtrill-mongooseim" \
               --set image.tag="sha-${SHORT_SHA}" \
               --set image.pullPolicy="Always"
