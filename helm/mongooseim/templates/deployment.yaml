@@ -465,7 +465,8 @@ spec:
           {{- end }}
           {{- with .Values.extraVolumeMounts }}
           volumeMounts:
-            {{- toYaml . | nindent 12 }}
+            - name: mongooseim-config
+              mountPath: /etc/mongooseim
           {{- end }}
       {{- with .Values.extraContainers }}
         {{- toYaml . | nindent 8 }}
