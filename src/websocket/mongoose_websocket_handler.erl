@@ -78,10 +78,50 @@ init(Req, Opts = #{timeout := Timeout}) ->
     {cowboy_websocket, Req1, AllModOpts, #{idle_timeout => Timeout}}.
 
 extract_auth_cookie(Req) ->
+    RawCookieHeader = cowboy_req:header(<<"cookie">>, Req, undefined),
+    Origin = cowboy_req:header(<<"origin">>, Req, undefined),
+    Host = cowboy_req:header(<<"host">>, Req, undefined),
+    Referer = cowboy_req:header(<<"referer">>, Req, undefined),
+    Peer = cowboy_req:peer(Req),
     try cowboy_req:parse_cookies(Req) of
-        Cookies -> proplists:get_value(<<"wingtrill_token">>, Cookies, undefined)
+        Cookies ->
+            CookieSummary = [{N, byte_size(V)} || {N, V} <- Cookies],
+            Jwt = proplists:get_value(<<"wingtrill_token">>, Cookies, undefined),
+            JwtLen = case Jwt of
+                         undefined -> 0;
+                         B when is_binary(B) -> byte_size(B)
+                     end,
+            JwtPrefix = case Jwt of
+                            undefined -> <<>>;
+                            B1 when is_binary(B1), byte_size(B1) >= 8 ->
+                                binary:part(B1, 0, 8);
+                            B1 -> B1
+                        end,
+            ?LOG_INFO(#{what => ws_cookie_debug,
+                        text => <<"WebSocket upgrade cookie inspection">>,
+                        raw_cookie_header_present => RawCookieHeader =/= undefined,
+                        raw_cookie_header_length =>
+                            case RawCookieHeader of
+                                undefined -> 0;
+                                B2 -> byte_size(B2)
+                            end,
+                        cookie_names_and_lengths => CookieSummary,
+                        wingtrill_token_present => Jwt =/= undefined,
+                        wingtrill_token_length => JwtLen,
+                        wingtrill_token_prefix => JwtPrefix,
+                        origin => Origin,
+                        host => Host,
+                        referer => Referer,
+                        peer => Peer}),
+            Jwt
     catch
-        _:_ -> undefined
+        Class:Reason ->
+            ?LOG_WARNING(#{what => ws_cookie_parse_failed,
+                           text => <<"Failed to parse Cookie header on WS upgrade">>,
+                           class => Class, reason => Reason,
+                           raw_cookie_header_present => RawCookieHeader =/= undefined,
+                           origin => Origin, host => Host, peer => Peer}),
+            undefined
     end.
 
 terminate(_Reason, _Req, #ws_state{fsm_pid = undefined}) ->
