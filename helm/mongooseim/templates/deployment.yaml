@@ -409,7 +409,7 @@ spec:
                 PEERS=$(getent hosts mim-mongooseim-headless | awk '{print $2}' | grep -v "$SELF" || true)
                 for PEER in $PEERS; do
                   echo "🔗 Attempting to join cluster with $PEER"
-                  /usr/lib/mongooseim/bin/mongooseimctl join_cluster mongooseim@$PEER || true
+                  /usr/lib/mongooseim/bin/mongooseimctl join_cluster --force mongooseim@$PEER || true
                 done
               fi
 
