@@ -435,7 +435,6 @@ spec:
               echo "🚀 Starting MongooseIM..."
               exec /usr/lib/mongooseim/bin/mongooseim foreground
           {{- end }}
-          {{- end }}
           {{- with .Values.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
