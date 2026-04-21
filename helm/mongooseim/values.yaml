@@ -127,13 +127,8 @@ envFrom: []
 
 extraContainers: []
 
-extraVolumes:
-  - name: mongooseim-config
-    emptyDir: {}
-
-extraVolumeMounts:
-  - name: mongooseim-config
-    mountPath: /etc/mongooseim
+extraVolumes: []
+extraVolumeMounts: []
 
 postgresqlPersistence:
   enabled: true
