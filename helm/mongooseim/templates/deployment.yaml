@@ -29,10 +29,9 @@ spec:
       {{- if .Values.serviceAccount.create }}
       serviceAccountName: {{ include "mongooseim.serviceAccountName" . }}
       {{- end }}
-      {{- with .Values.podSecurityContext }}
       securityContext:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+        runAsUser: 0
+        runAsGroup: 0
       containers:
         - name: mongooseim
           image: {{ include "mongooseim.image" . }}
@@ -46,6 +45,9 @@ spec:
               # Read config rendered into the image from rel/files/mongooseim.toml.
               CONF_SRC="/etc/mongooseim/mongooseim.toml"
               CONF="/etc/mongooseim/mongooseim.toml"
+              
+              cp /etc/mongooseim/vm.args /tmp/vm.args
+              cp /etc/mongooseim/vm.dist.args /tmp/vm.dist.args
               VM_ARGS="/etc/mongooseim/vm.args"
               VM_DIST_ARGS="/etc/mongooseim/vm.dist.args"
               JWT_KEY_FILE="/var/lib/mongooseim/jwt_public_key.pem"
@@ -487,6 +489,10 @@ spec:
             - name: mongooseim-config
               mountPath: /etc/mongooseim
           {{- end }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.extraContainers }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
