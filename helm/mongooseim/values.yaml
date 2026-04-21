@@ -1,6 +1,4 @@
-
 replicaCount: 2
-
 erlang:
   nodePrefix: "mongooseim"
   cookie: "mongooseim"

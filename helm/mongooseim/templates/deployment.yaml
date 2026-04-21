@@ -1,10 +1,11 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "mongooseim.fullname" . }}
   labels:
     {{- include "mongooseim.labels" . | nindent 4 }}
 spec:
+  serviceName: "mim-mongooseim-headless"   # ← ties pods to headless service
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
@@ -72,10 +73,10 @@ spec:
               echo "Using source config: $CONF_SRC"
               echo "Using EJABBERD_CONFIG_PATH=$EJABBERD_CONFIG_PATH"
 
-              NODE_HOST="$(sanitize_single_line "${POD_IP:-}")"
-              if [[ -z "$NODE_HOST" ]]; then
-                NODE_HOST="$(hostname -i | awk '{print $1}')"
-              fi
+              POD_NAME="$(hostname)"   # e.g. mim-mongooseim-0
+              NAMESPACE="mim"          # your namespace
+              SVC="mim-mongooseim-headless"
+              NODE_HOST="${POD_NAME}.${SVC}.${NAMESPACE}.svc.cluster.local"
               if [[ -z "$NODE_HOST" ]]; then
                 echo "❌ FATAL: unable to determine node host for Erlang distribution"
                 exit 1
@@ -403,18 +404,37 @@ spec:
               # =============================
               # CLUSTER JOIN LOGIC (AUTOJOIN)
               # =============================
-              if [[ "{{ .Values.replicaCount }}" -gt 1 ]]; then
-                SELF=$(hostname -f)
-                # Get all peer pod hostnames from headless service, excluding self
-                PEERS=$(getent hosts mim-mongooseim-headless | awk '{print $2}' | grep -v "$SELF" || true)
-                for PEER in $PEERS; do
-                  echo "🔗 Attempting to join cluster with $PEER"
-                  /usr/lib/mongooseim/bin/mongooseimctl join_cluster --force mongooseim@$PEER || true
-                done
-              fi
+              if  [[ "{{ .Values.replicaCount }}" -gt 1 ]]; then
+                NAMESPACE="mim"
+                SVC="mim-mongooseim-headless"
+                ERLANG_PREFIX="{{ .Values.erlang.nodePrefix }}"
 
+                # Extract ordinal index from pod name (e.g. mim-mongooseim-1 → 1)
+                POD_NAME="$(hostname)"
+                ORDINAL="${POD_NAME##*-}"
+
+               if [[ "$ORDINAL" -gt 0 ]]; then
+                  # Always join via pod-0 (the seed node)
+                  SEED_HOST="mim-mongooseim-0.${SVC}.${NAMESPACE}.svc.cluster.local"
+                  SEED_NODE="${ERLANG_PREFIX}@${SEED_HOST}"
+
+                  echo "🔗 Waiting for seed node $SEED_NODE to be reachable..."
+                  for i in $(seq 1 30); do
+                    getent hosts "$SEED_HOST" >/dev/null 2>&1 && break
+                    echo "  waiting for DNS... ($i/30)"
+                    sleep 2
+                  done
+
+                  echo "🔗 Joining cluster via seed: $SEED_NODE"
+                  /usr/lib/mongooseim/bin/mongooseimctl join_cluster "$SEED_NODE" || \
+                    echo "⚠️  join_cluster returned non-zero (may already be joined)"
+              else
+                echo "ℹ️  Pod 0 — acting as cluster seed, no join needed"
+              fi
+              fi
               echo "🚀 Starting MongooseIM..."
               exec /usr/lib/mongooseim/bin/mongooseim foreground
+          {{- end }}
           {{- end }}
           {{- with .Values.securityContext }}
           securityContext:
