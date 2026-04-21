@@ -64,12 +64,14 @@
 %% gen_mod
 -export([start/2, stop/1, hooks/1, supported_features/0, config_spec/0]).
 
-%% Public API for other custom modules
--export([get_privacy/3,
-         set_privacy/4,
-         is_visible/4,
-         is_contact/3,
-         known_fields/0]).
+%%%% Public API for other custom modules
+-export([
+%% get_privacy/3,
+%%         set_privacy/4,
+         is_visible/4
+%%         is_contact/3,
+%%         known_fields/0
+]).
 
 %% Hook handler
 -export([user_send_iq/3]).
@@ -108,8 +110,8 @@ config_spec() ->
 %%% Public API — used by mod_last_seen and friends
 %%%----------------------------------------------------------------------
 
--spec known_fields() -> [binary()].
-known_fields() -> ?FIELDS.
+%%-spec known_fields() -> [binary()].
+%%known_fields() -> ?FIELDS.
 
 %% Look up one field; missing rows default to `everyone'.
 -spec get_privacy(mongooseim:host_type(), jid:jid() | {jid:lserver(), jid:luser()},
@@ -122,15 +124,15 @@ get_privacy(HostType, {LServer, LUser}, Field) ->
         not_found -> ?DEFAULT_VALUE
     end.
 
--spec set_privacy(mongooseim:host_type(), jid:jid(), binary(), binary()) ->
-    ok | {error, term()}.
-set_privacy(HostType, #jid{luser = LUser, lserver = LServer}, Field, Value) ->
-    case is_known_field(Field) andalso is_valid_value(Value) of
-        true ->
-            mod_user_privacy_backend:set_privacy(HostType, LServer, LUser, Field, Value);
-        false ->
-            {error, bad_request}
-    end.
+%%-spec set_privacy(mongooseim:host_type(), jid:jid(), binary(), binary()) ->
+%%    ok | {error, term()}.
+%%set_privacy(HostType, #jid{luser = LUser, lserver = LServer}, Field, Value) ->
+%%    case is_known_field(Field) andalso is_valid_value(Value) of
+%%        true ->
+%%            mod_user_privacy_backend:set_privacy(HostType, LServer, LUser, Field, Value);
+%%        false ->
+%%            {error, bad_request}
+%%    end.
 
 %% Can `RequesterJid' see `Field' on `TargetJid'?
 %% Self always sees self. Otherwise honour the target's privacy choice.
