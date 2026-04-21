@@ -141,3 +141,6 @@ redisPersistence:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+securityContext:
+  runAsUser: 0
+  runAsGroup: 0
