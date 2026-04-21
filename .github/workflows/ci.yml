@@ -418,10 +418,10 @@ jobs:
 
             # Force restart so new deployment.yaml startup script runs in pods
             echo "🔄 Restarting pods to apply new startup script..."
-            kubectl rollout restart deployment/${APP_DEPLOY} -n "$MIM_NS"
+            kubectl rollout restart statefulset/${APP_DEPLOY} -n "$MIM_NS"
 
             echo "⏳ Waiting for rollout to complete..."
-            if ! kubectl rollout status deployment/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s; then
+            if ! kubectl rollout status statefulset/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s; then
               echo "❌ FAILED: rollout timed out"
               kubectl get pods -n "$MIM_NS" -o wide || true
               exit 1
