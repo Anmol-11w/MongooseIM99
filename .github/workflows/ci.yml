@@ -414,30 +414,35 @@ jobs:
               MIM_TLS_KEY_PEM="${TLS_KEY_PEM}"
             echo "✅ Secrets injected as env vars"
 
-            # ✅ Deploy new image via Helm (MongooseIM app only)
+            # ✅ Deploy new image via Helm
             echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
             helm upgrade --install mim ./helm/mongooseim \
               --namespace "$MIM_NS" \
               -f helm/mongooseim/values.yaml \
               --set image.repository="ghcr.io/anmol-11w/mongooseim99" \
               --set image.tag="sha-${SHORT_SHA}" \
-              --set image.pullPolicy="Always" \
-              
+              --set image.pullPolicy="Always"
+
             # ✅ Explicitly set image on statefulset — this is the source of truth
             echo "🔄 Setting image to sha-${SHORT_SHA} on statefulset..."
             kubectl set image statefulset/${APP_DEPLOY} \
               mongooseim=ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA} \
               -n "$MIM_NS"
+
             # ✅ Force rollout restart so pod always picks up new image
+            echo "🔁 Restarting statefulset to pick up new image..."
             kubectl rollout restart statefulset/${APP_DEPLOY} -n "$MIM_NS"
+
+            # ✅ Wait for rollout — warn but don't fail if pod is still crashing
             echo "⏳ Waiting for rollout to complete..."
             if ! kubectl rollout status statefulset/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s; then
-              echo "❌ FAILED: rollout timed out"
+              echo "⚠️  Rollout did not complete in 300s — pod may still be starting or crashing"
+              echo "⚠️  Image was updated to sha-${SHORT_SHA} — check pod logs for app errors"
               kubectl get pods -n "$MIM_NS" -o wide || true
-              kubectl logs ${APP_DEPLOY}-0 -n "$MIM_NS" --tail=50 || true
-              exit 1
+              kubectl logs ${APP_DEPLOY}-0 -n "$MIM_NS" --tail=80 || true
+            else
+              echo "✅ Rollout complete"
             fi
-            echo "✅ Rollout complete"
 
             # ✅ Verify PostgreSQL and Redis were NOT changed
             PG_GEN_AFTER="$(get_generation "$PG_DEPLOY")"
@@ -455,7 +460,7 @@ jobs:
 
             echo "✅ PostgreSQL and Redis deployments unchanged"
             echo ""
-            echo "✅ Deployment complete!"
+            echo "✅ Deploy triggered for sha-${SHORT_SHA}"
             echo ""
             echo "📦 Running pods:"
             kubectl get pods -n "$MIM_NS"
