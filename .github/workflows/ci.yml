@@ -419,25 +419,27 @@ jobs:
               -f helm/mongooseim/values.yaml \
               --set image.repository="ghcr.io/anmol-11w/mongooseim99" \
               --set image.tag="sha-${SHORT_SHA}" \
-              --set image.pullPolicy="Always" \
-              --set updateStrategy.type="RollingUpdate" \
-              --wait \
-              --timeout 300s
+              --set image.pullPolicy="Always"
 
-            # Force correct image on both pods explicitly
-            echo "🔄 Forcing image update to sha-${SHORT_SHA}..."
+            # ✅ Explicitly set image on statefulset — this is the source of truth
+            echo "🔄 Setting image to sha-${SHORT_SHA} on statefulset..."
             kubectl set image statefulset/${APP_DEPLOY} \
               mongooseim=ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA} \
               -n "$MIM_NS"
 
-            # Delete pods to force immediate restart with new image
-            kubectl delete pods -l app.kubernetes.io/instance=mim -n "$MIM_NS" \
+            # ✅ Force delete pods so they restart immediately with new image
+            # (StatefulSets don't auto-restart pods on image change without this)
+            echo "🗑️  Force deleting pods to pick up new image..."
+            kubectl delete pods \
+              -l app.kubernetes.io/instance=mim \
+              -n "$MIM_NS" \
               --force --grace-period=0 2>/dev/null || true
 
             echo "⏳ Waiting for rollout to complete..."
             if ! kubectl rollout status statefulset/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s; then
               echo "❌ FAILED: rollout timed out"
               kubectl get pods -n "$MIM_NS" -o wide || true
+              kubectl logs ${APP_DEPLOY}-0 -n "$MIM_NS" --tail=50 || true
               exit 1
             fi
             echo "✅ Rollout complete"
