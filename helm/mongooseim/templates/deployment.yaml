@@ -425,8 +425,8 @@ spec:
                 exit 1
               fi
 
-              # Safety check — catch any remaining duplicate sections
-              DUPES=$(grep -E '^\[' "$CONF" | sort | uniq -d)
+              # Safety check — only flag duplicate [single] sections, not [[array.of.tables]]
+              DUPES=$(grep -E '^\[[^\[]' "$CONF" | sort | uniq -d)
               if [[ -n "$DUPES" ]]; then
                 echo "❌ ABORT: duplicate TOML sections detected:"
                 echo "$DUPES"
