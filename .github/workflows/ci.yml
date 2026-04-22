@@ -424,9 +424,15 @@ jobs:
               --wait \
               --timeout 300s
 
-            # Force rollout with timestamp annotation to ensure pods restart with new image
-            kubectl patch statefulset/${APP_DEPLOY} -n "$MIM_NS" \
-              -p "{\"spec\":{\"updateStrategy\":{\"type\":\"RollingUpdate\"},\"template\":{\"metadata\":{\"annotations\":{\"kubectl.kubernetes.io/restartedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}}}}"
+            # Force correct image on both pods explicitly
+            echo "🔄 Forcing image update to sha-${SHORT_SHA}..."
+            kubectl set image statefulset/${APP_DEPLOY} \
+              mongooseim=ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA} \
+              -n "$MIM_NS"
+
+            # Delete pods to force immediate restart with new image
+            kubectl delete pods -l app.kubernetes.io/instance=mim -n "$MIM_NS" \
+              --force --grace-period=0 2>/dev/null || true
 
             echo "⏳ Waiting for rollout to complete..."
             if ! kubectl rollout status statefulset/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s; then
