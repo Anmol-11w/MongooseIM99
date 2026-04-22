@@ -20,7 +20,7 @@ openssl req -new -key "$CERT_DIR/client-key.pem" -out "$CERT_DIR/client.csr" -su
 openssl x509 -req -in "$CERT_DIR/client.csr" -CA "$CERT_DIR/cacert.pem" -CAkey "$CERT_DIR/ca-key.pem" -CAcreateserial -out "$CERT_DIR/client-cert.pem" -days 365 -sha256
 
 # 4. Clean up
-rm "$CERT_DIR/client.csr" "$CERT_DIR/ca-key.pem" "$CERT_DIR/ca-key.srl"
+rm -f "$CERT_DIR/client.csr" "$CERT_DIR/ca-key.pem" "$CERT_DIR/ca-key.srl"
 
 echo "Certificates generated in $CERT_DIR:"
 echo "- client-cert.pem"
