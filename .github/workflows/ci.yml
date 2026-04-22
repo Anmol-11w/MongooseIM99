@@ -422,9 +422,7 @@ jobs:
               --set image.repository="ghcr.io/anmol-11w/mongooseim99" \
               --set image.tag="sha-${SHORT_SHA}" \
               --set image.pullPolicy="Always" \
-              --set postgresql.enabled=false \
-              --set redis.enabled=false
-
+              
             # ✅ Explicitly set image on statefulset — this is the source of truth
             echo "🔄 Setting image to sha-${SHORT_SHA} on statefulset..."
             kubectl set image statefulset/${APP_DEPLOY} \
