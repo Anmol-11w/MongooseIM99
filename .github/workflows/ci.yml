@@ -359,7 +359,7 @@ jobs:
 
             export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
             cd /opt/MongooseIM99
-            
+
             # Fix git ownership
             sudo chown -R $USER:$USER /opt/MongooseIM99
             git config --global --add safe.directory /opt/MongooseIM99
@@ -390,6 +390,8 @@ jobs:
             echo "✅ All required secrets present"
 
             get_generation() {
+              kubectl get deployment "$1" -n "$MIM_NS" \
+                -o jsonpath='{.metadata.generation}' 2>/dev/null || \
               kubectl get statefulset "$1" -n "$MIM_NS" \
                 -o jsonpath='{.metadata.generation}' 2>/dev/null || echo "absent"
             }
@@ -397,7 +399,7 @@ jobs:
             PG_GEN_BEFORE="$(get_generation "$PG_DEPLOY")"
             REDIS_GEN_BEFORE="$(get_generation "$REDIS_DEPLOY")"
 
-            # ✅ Inject all secrets as env vars on the MongooseIM deployment
+            # ✅ Inject all secrets as env vars on the MongooseIM statefulset only
             echo "🔐 Injecting secrets as pod environment variables..."
             kubectl set env statefulset/${APP_DEPLOY} -n "$MIM_NS" \
               MIM_DB_HOST="${DB_HOST}" \
@@ -412,28 +414,22 @@ jobs:
               MIM_TLS_KEY_PEM="${TLS_KEY_PEM}"
             echo "✅ Secrets injected as env vars"
 
-            # ✅ Deploy new image via Helm
+            # ✅ Deploy new image via Helm (MongooseIM app only)
             echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
             helm upgrade --install mim ./helm/mongooseim \
               --namespace "$MIM_NS" \
               -f helm/mongooseim/values.yaml \
               --set image.repository="ghcr.io/anmol-11w/mongooseim99" \
               --set image.tag="sha-${SHORT_SHA}" \
-              --set image.pullPolicy="Always"
+              --set image.pullPolicy="Always" \
+              --set postgresql.enabled=false \
+              --set redis.enabled=false
 
             # ✅ Explicitly set image on statefulset — this is the source of truth
             echo "🔄 Setting image to sha-${SHORT_SHA} on statefulset..."
             kubectl set image statefulset/${APP_DEPLOY} \
               mongooseim=ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA} \
               -n "$MIM_NS"
-
-            # ✅ Force delete pods so they restart immediately with new image
-            # (StatefulSets don't auto-restart pods on image change without this)
-            echo "🗑️  Force deleting pods to pick up new image..."
-            kubectl delete pods \
-              -l app.kubernetes.io/instance=mim \
-              -n "$MIM_NS" \
-              --force --grace-period=0 2>/dev/null || true
 
             echo "⏳ Waiting for rollout to complete..."
             if ! kubectl rollout status statefulset/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s; then
@@ -444,7 +440,7 @@ jobs:
             fi
             echo "✅ Rollout complete"
 
-            # ✅ Verify PostgreSQL and Redis deployments were NOT changed
+            # ✅ Verify PostgreSQL and Redis were NOT changed
             PG_GEN_AFTER="$(get_generation "$PG_DEPLOY")"
             REDIS_GEN_AFTER="$(get_generation "$REDIS_DEPLOY")"
 
@@ -464,6 +460,7 @@ jobs:
             echo ""
             echo "📦 Running pods:"
             kubectl get pods -n "$MIM_NS"
+
 
 # =====================================================
 # MONITORING DEPLOY
