@@ -266,25 +266,30 @@ spec:
               awk '
                 BEGIN { in_auth = 0; auth_written = 0 }
                 /^\[auth(\.|]$)/ {
-                  in_auth = 1
-                  next
+                in_auth = 1
+                next
+                }
+                in_auth && /^\[(internal_databases|outgoing_pools|services|modules|shaper|acl|access|s2s|listen|host_config)/ {
+                if (auth_written == 0) {
+                  print "[auth]"
+                  print "  methods = [\"jwt\"]"
+                  print "  sasl_mechanisms = [\"plain\"]"
+                  print ""
+                  auth_written = 1
+                }
+                in_auth = 0
+                print
+                next
                 }
                 in_auth && /^\[/ {
-                  if (auth_written == 0) {
-                    print "[auth]"
-                    print "  methods = [\"jwt\"]"
-                    print "  sasl_mechanisms = [\"plain\"]"
-                    print ""
-                    auth_written = 1
-                  }
                   in_auth = 0
                   print
                   next
-                }
+               }
                 in_auth { next }
-                { print }
-                END {
-                  if (auth_written == 0) {
+                  { print }
+                  END {
+                    if (auth_written == 0) {
                     print "[auth]"
                     print "  methods = [\"jwt\"]"
                     print "  sasl_mechanisms = [\"plain\"]"

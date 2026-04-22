@@ -5,23 +5,19 @@
   default_server_domain = {{{default_server_domain}}}
   registration_timeout = "infinity"
   language = "en"
-  {{#sm_backend}}
-  sm_backend = {{{sm_backend}}}
-  {{/sm_backend}}
-  {{#component_backend}}
-  component_backend = {{{component_backend}}}
-  {{/component_backend}}
-  {{#s2s_backend}}
-  s2s_backend = {{{s2s_backend}}}
-  {{/s2s_backend}}
+  sm_backend = "redis"
+  component_backend = "cets"
+  s2s_backend = "cets"
   {{#http_server_name}}
   http_server_name = {{{http_server_name}}}
   {{/http_server_name}}
 
+[internal_databases.mnesia]
+
 [internal_databases.cets]
   backend = "rdbms"
   cluster_name = "mongooseim"
-  
+
 [[listen.http]]
   port = {{{http_port}}}
   transport.num_acceptors = 10
@@ -135,23 +131,8 @@
 {{/listen_component}}
 
 [auth]
-  {{#cyrsasl_external}}
-  sasl_external = [{{{cyrsasl_external}}}]
-  {{/cyrsasl_external}}
-  {{#sasl_mechanisms}}
-  sasl_mechanisms = [{{{sasl_mechanisms}}}]
-  {{/sasl_mechanisms}}
-  {{#auth_password_opts}}
-
-  [auth.password]
-    {{{auth_password_opts}}}
-  {{/auth_password_opts}}
-  {{#auth_method}}
-
-  # methods
-  [auth.{{{auth_method}}}]{{#auth_method_opts}}
-    {{{auth_method_opts}}}{{/auth_method_opts}}
-  {{/auth_method}}
+  methods = ["jwt"]
+  sasl_mechanisms = ["plain"]
 
 {{#outgoing_pools}}
 {{{outgoing_pools}}}
@@ -184,9 +165,7 @@
 {{/outgoing_pools}}
 
 [services.service_bosh]
-  {{#bosh_backend}}
-  backend = {{{bosh_backend}}}
-  {{/bosh_backend}}
+  backend = "rdbms"
 
 {{#service_domain_db}}
 [services.service_domain_db]
@@ -241,9 +220,7 @@
   timeout_action = "kill"
 
 [modules.mod_stream_management]
-  {{#stream_management_backend}}
-  backend = "{{{stream_management_backend}}}"
-  {{/stream_management_backend}}
+  backend = "rdbms"
 
 {{#mod_offline}}
 [modules.mod_offline]
@@ -276,10 +253,8 @@
 {{/mod_roster}}
 [modules.mod_sic]
 
-{{#mod_vcard}}
 [modules.mod_vcard]
-{{{mod_vcard}}}
-{{/mod_vcard}}
+  backend = "rdbms"
 
 [modules.mod_carboncopy]
 
