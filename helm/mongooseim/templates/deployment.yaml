@@ -63,7 +63,6 @@ spec:
 
               set -e
               echo "[MIM LOG] Starting entrypoint script"
-              # Read config rendered into the image from rel/files/mongooseim.toml.
               CONF_SRC="/etc/mongooseim/mongooseim.toml"
               CONF="/etc/mongooseim/mongooseim.toml"
               echo "[MIM LOG] CONF_SRC: $CONF_SRC"
@@ -82,7 +81,6 @@ spec:
                 printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
               }
 
-
               echo "[MIM LOG] Checking config and args files exist"
               if [[ ! -f "$CONF_SRC" ]]; then
                 echo "❌ FATAL: source config not found at $CONF_SRC"
@@ -97,14 +95,12 @@ spec:
                 exit 1
               fi
 
-
               export EJABBERD_CONFIG_PATH="$CONF"
               echo "[MIM LOG] Using source config: $CONF_SRC"
               echo "[MIM LOG] Using EJABBERD_CONFIG_PATH=$EJABBERD_CONFIG_PATH"
 
-
-              POD_NAME="$(hostname)"   # e.g. mim-mongooseim-0
-              NAMESPACE="mim"          # your namespace
+              POD_NAME="$(hostname)"
+              NAMESPACE="mim"
               SVC="mim-mongooseim-headless"
               NODE_HOST="${POD_NAME}.${SVC}.${NAMESPACE}.svc.cluster.local"
               echo "[MIM LOG] POD_NAME: $POD_NAME"
@@ -113,7 +109,6 @@ spec:
                 echo "❌ FATAL: unable to determine node host for Erlang distribution"
                 exit 1
               fi
-
 
               ERLANG_NODE_PREFIX="{{ .Values.erlang.nodePrefix }}"
               ERLANG_NODE="${ERLANG_NODE_PREFIX}@${NODE_HOST}"
@@ -124,7 +119,6 @@ spec:
               echo "[MIM LOG] ERLANG_COOKIE: $ERLANG_COOKIE"
               echo "[MIM LOG] ERLANG_DIST_PORT_MIN: $ERLANG_DIST_PORT_MIN"
               echo "[MIM LOG] ERLANG_DIST_PORT_MAX: $ERLANG_DIST_PORT_MAX"
-
 
               if [[ ! "$ERLANG_DIST_PORT_MIN" =~ ^[0-9]+$ || ! "$ERLANG_DIST_PORT_MAX" =~ ^[0-9]+$ ]]; then
                 echo "❌ FATAL: Erlang distribution ports must be numeric"
@@ -143,7 +137,6 @@ spec:
                 "$VM_ARGS"
               printf -- "-name %s\n-setcookie %s\n" "$ERLANG_NODE" "$ERLANG_COOKIE" >> "$VM_ARGS"
 
-
               if [[ -f "$VM_DIST_ARGS" ]]; then
                 sed -E -i '/^-kernel[[:space:]]+inet_dist_listen_(min|max)[[:space:]]+[0-9]+$/d' "$VM_DIST_ARGS"
                 printf -- "-kernel inet_dist_listen_min %s\n-kernel inet_dist_listen_max %s\n" \
@@ -151,14 +144,11 @@ spec:
               fi
               echo "[MIM LOG] ✅ Erlang distribution configured"
 
-              # Keep default cert paths for local/dev.
               sed -E -i \
                 -e 's|^([[:space:]]*)tls\.certfile[[:space:]]*=.*|\1tls.certfile = "priv/ssl/fake_cert.pem"|' \
                 -e 's|^([[:space:]]*)tls\.keyfile[[:space:]]*=.*|\1tls.keyfile = "priv/ssl/fake_key.pem"|' \
                 "$CONF"
 
-              # For production, allow real PEM values to be provided via env secrets,
-              # but keep the same cert/key paths in config.
               if [[ -n "${MIM_TLS_CERT_PEM:-}" || -n "${MIM_TLS_KEY_PEM:-}" ]]; then
                 if [[ -z "${MIM_TLS_CERT_PEM:-}" || -z "${MIM_TLS_KEY_PEM:-}" ]]; then
                   echo "❌ FATAL: both MIM_TLS_CERT_PEM and MIM_TLS_KEY_PEM must be set together"
@@ -251,7 +241,6 @@ spec:
               AI_BOT_API_KEY_CLEAN="$(sanitize_single_line "${MIM_AI_BOT_API_KEY:-}")"
               if [[ -n "$AI_BOT_API_KEY_CLEAN" ]]; then
                 echo "🤖 Injecting AI bot API key from MIM_AI_BOT_API_KEY"
-
                 AI_BOT_API_KEY_ESCAPED="$(escape_toml_string "$AI_BOT_API_KEY_CLEAN")"
                 awk -v api_key="$AI_BOT_API_KEY_ESCAPED" '
                   BEGIN { in_ai_bot = 0; in_ai_bot_call = 0 }
@@ -269,16 +258,15 @@ spec:
               fi
 
               # =========================================================
-              # STEP 4: Replace entire [auth] block with clean JWT-only config
+              # STEP 4: Remove ALL [auth] and [auth.*] blocks then rewrite
+              # This includes [auth.jwt] baked into the image — prevents
+              # redefining_table TOML parse error when we append [auth.jwt]
               # =========================================================
               echo "🔐 Rewriting [auth] section for JWT-only authentication..."
               awk '
                 BEGIN { in_auth = 0; auth_written = 0 }
-                /^\[auth\]/ {
+                /^\[auth(\.|]$)/ {
                   in_auth = 1
-                  next
-                }
-                in_auth && /^\[auth\./ {
                   next
                 }
                 in_auth && /^\[/ {
@@ -305,11 +293,10 @@ spec:
                 }
               ' "$CONF" > "${CONF}.new"
               mv "${CONF}.new" "$CONF"
-              echo "✅ [auth] rewritten — all password backends removed"
+              echo "✅ [auth] rewritten — all auth blocks removed and replaced"
 
               # =========================================================
-              # STEP 5: Write JWT public key to file and inject [auth.jwt]
-              # RSA public keys must be written to a file, not inline value
+              # STEP 5: Write JWT public key and inject fresh [auth.jwt]
               # =========================================================
               if [[ -z "${MIM_JWT_PUBLIC_KEY:-}" ]]; then
                 echo "❌ FATAL: MIM_JWT_PUBLIC_KEY env var is not set!"
@@ -317,7 +304,6 @@ spec:
               fi
 
               echo "🔑 Writing JWT public key to file: $JWT_KEY_FILE"
-              # Handle both literal \n and real newlines in the key
               echo "${MIM_JWT_PUBLIC_KEY}" | sed 's/\\\\n/\n/g' > "$JWT_KEY_FILE"
               chmod 600 "$JWT_KEY_FILE"
               echo "✅ JWT public key file written"
@@ -439,40 +425,22 @@ spec:
                 exit 1
               fi
 
+              # Safety check — catch any remaining duplicate sections
+              DUPES=$(grep -E '^\[' "$CONF" | sort | uniq -d)
+              if [[ -n "$DUPES" ]]; then
+                echo "❌ ABORT: duplicate TOML sections detected:"
+                echo "$DUPES"
+                exit 1
+              fi
+
               echo "✅ All config checks passed"
 
-              # =============================
-              # CLUSTER JOIN LOGIC (AUTOJOIN)
-              # =============================
-              if  [[ "{{ .Values.replicaCount }}" -gt 1 ]]; then
-                NAMESPACE="mim"
-                SVC="mim-mongooseim-headless"
-                ERLANG_PREFIX="{{ .Values.erlang.nodePrefix }}"
-
-                # Extract ordinal index from pod name (e.g. mim-mongooseim-1 → 1)
-                POD_NAME="$(hostname)"
-                ORDINAL="${POD_NAME##*-}"
-
-               if [[ "$ORDINAL" -gt 0 ]]; then
-                  # Always join via pod-0 (the seed node)
-                  SEED_HOST="mim-mongooseim-0.${SVC}.${NAMESPACE}.svc.cluster.local"
-                  SEED_NODE="${ERLANG_PREFIX}@${SEED_HOST}"
-
-                  echo "🔗 Waiting for seed node $SEED_NODE to be reachable..."
-                  for i in $(seq 1 30); do
-                    getent hosts "$SEED_HOST" >/dev/null 2>&1 && break
-                    echo "  waiting for DNS... ($i/30)"
-                    sleep 2
-                  done
-
-                  echo "🔗 Joining cluster via seed: $SEED_NODE"
-                  /usr/lib/mongooseim/bin/mongooseimctl join_cluster "$SEED_NODE" || \
-                    echo "⚠️  join_cluster returned non-zero (may already be joined)"
-              else
-                echo "ℹ️  Pod 0 — acting as cluster seed, no join needed"
-              fi
-              fi
-              echo "🚀 Starting MongooseIM..."
+              # =========================================================
+              # STEP 9: Start MongooseIM
+              # CETS clustering is fully automatic via discovery_nodes table
+              # in PostgreSQL — no join_cluster command needed (MongooseIM 6.2+)
+              # =========================================================
+              echo "🚀 Starting MongooseIM (CETS auto-clustering via PostgreSQL)..."
               exec /usr/lib/mongooseim/bin/mongooseim foreground
           {{- end }}
           {{- with .Values.securityContext }}
