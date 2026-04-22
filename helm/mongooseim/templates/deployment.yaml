@@ -41,11 +41,16 @@ spec:
             - /bin/bash
             - -ec
             - |
+
               set -e
+              echo "[MIM LOG] Starting entrypoint script"
               # Read config rendered into the image from rel/files/mongooseim.toml.
               CONF_SRC="/etc/mongooseim/mongooseim.toml"
               CONF="/etc/mongooseim/mongooseim.toml"
-              
+              echo "[MIM LOG] CONF_SRC: $CONF_SRC"
+              echo "[MIM LOG] CONF: $CONF"
+
+              echo "[MIM LOG] Copying vm.args and vm.dist.args"
               cp /etc/mongooseim/vm.args /tmp/vm.args
               cp /etc/mongooseim/vm.dist.args /tmp/vm.dist.args
               VM_ARGS="/etc/mongooseim/vm.args"
@@ -58,6 +63,8 @@ spec:
                 printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
               }
 
+
+              echo "[MIM LOG] Checking config and args files exist"
               if [[ ! -f "$CONF_SRC" ]]; then
                 echo "❌ FATAL: source config not found at $CONF_SRC"
                 exit 1
@@ -71,24 +78,34 @@ spec:
                 exit 1
               fi
 
+
               export EJABBERD_CONFIG_PATH="$CONF"
-              echo "Using source config: $CONF_SRC"
-              echo "Using EJABBERD_CONFIG_PATH=$EJABBERD_CONFIG_PATH"
+              echo "[MIM LOG] Using source config: $CONF_SRC"
+              echo "[MIM LOG] Using EJABBERD_CONFIG_PATH=$EJABBERD_CONFIG_PATH"
+
 
               POD_NAME="$(hostname)"   # e.g. mim-mongooseim-0
               NAMESPACE="mim"          # your namespace
               SVC="mim-mongooseim-headless"
               NODE_HOST="${POD_NAME}.${SVC}.${NAMESPACE}.svc.cluster.local"
+              echo "[MIM LOG] POD_NAME: $POD_NAME"
+              echo "[MIM LOG] NODE_HOST: $NODE_HOST"
               if [[ -z "$NODE_HOST" ]]; then
                 echo "❌ FATAL: unable to determine node host for Erlang distribution"
                 exit 1
               fi
+
 
               ERLANG_NODE_PREFIX="{{ .Values.erlang.nodePrefix }}"
               ERLANG_NODE="${ERLANG_NODE_PREFIX}@${NODE_HOST}"
               ERLANG_COOKIE="$(sanitize_single_line "${MIM_ERLANG_COOKIE:-{{ .Values.erlang.cookie }}}")"
               ERLANG_DIST_PORT_MIN="$(sanitize_single_line "${MIM_ERLANG_DIST_PORT:-{{ .Values.erlang.distPort }}}")"
               ERLANG_DIST_PORT_MAX="$(sanitize_single_line "${MIM_ERLANG_DIST_PORT_MAX:-{{ .Values.erlang.distPortMax }}}")"
+              echo "[MIM LOG] ERLANG_NODE: $ERLANG_NODE"
+              echo "[MIM LOG] ERLANG_COOKIE: $ERLANG_COOKIE"
+              echo "[MIM LOG] ERLANG_DIST_PORT_MIN: $ERLANG_DIST_PORT_MIN"
+              echo "[MIM LOG] ERLANG_DIST_PORT_MAX: $ERLANG_DIST_PORT_MAX"
+
 
               if [[ ! "$ERLANG_DIST_PORT_MIN" =~ ^[0-9]+$ || ! "$ERLANG_DIST_PORT_MAX" =~ ^[0-9]+$ ]]; then
                 echo "❌ FATAL: Erlang distribution ports must be numeric"
@@ -99,19 +116,21 @@ spec:
                 exit 1
               fi
 
-              echo "🧩 Configuring Erlang node: $ERLANG_NODE"
+              echo "[MIM LOG] 🧩 Configuring Erlang node: $ERLANG_NODE"
+
               sed -E -i \
                 -e '/^-s?name[[:space:]]+/d' \
                 -e '/^-setcookie[[:space:]]+/d' \
                 "$VM_ARGS"
               printf -- "-name %s\n-setcookie %s\n" "$ERLANG_NODE" "$ERLANG_COOKIE" >> "$VM_ARGS"
 
+
               if [[ -f "$VM_DIST_ARGS" ]]; then
                 sed -E -i '/^-kernel[[:space:]]+inet_dist_listen_(min|max)[[:space:]]+[0-9]+$/d' "$VM_DIST_ARGS"
                 printf -- "-kernel inet_dist_listen_min %s\n-kernel inet_dist_listen_max %s\n" \
                   "$ERLANG_DIST_PORT_MIN" "$ERLANG_DIST_PORT_MAX" >> "$VM_DIST_ARGS"
               fi
-              echo "✅ Erlang distribution configured"
+              echo "[MIM LOG] ✅ Erlang distribution configured"
 
               # Keep default cert paths for local/dev.
               sed -E -i \
