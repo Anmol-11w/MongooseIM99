@@ -47,8 +47,10 @@ jobs:
           path: ~/.cache/rebar3
           key: rebar3-${{ hashFiles('rebar.lock') }}
 
-      - name: create certificates
+      - name: create certificates (legacy)
         run: make certs
+      - name: generate MongooseIM certificates (clustering)
+        run: bash tools/generate-mongooseim-certs.sh
 
       - name: run test
         run: tools/test.sh -p $PRESET -s true -e true

@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "mongooseim.labels" . | nindent 4 }}
 spec:
-  serviceName: "mim-mongooseim-headless"   # ← ties pods to headless service
+  serviceName: "mim-mongooseim-headless"   
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:

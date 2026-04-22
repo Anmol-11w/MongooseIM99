@@ -12,6 +12,10 @@
 ## Cookie for distributed erlang
 -setcookie mongooseim
 
+## Erlang distribution port range (open these between pods)
+-kernel inet_dist_listen_min 50000
+-kernel inet_dist_listen_max 50010
+
 ## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
 ## (Disabled by default..use with caution!)
 ##-heart
