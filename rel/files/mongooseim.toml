@@ -21,11 +21,6 @@
 [internal_databases.cets]
   backend = "rdbms"
   cluster_name = "mongooseim"
-
-  tls.required = true
-  tls.certfile = "priv/ssl/client-cert.pem"
-  tls.keyfile = "priv/ssl/client-key.pem"
-  tls.cacertfile = "priv/ssl/cacert.pem"
   
 [[listen.http]]
   port = {{{http_port}}}
