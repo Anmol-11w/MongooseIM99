@@ -428,7 +428,8 @@ jobs:
             kubectl set image statefulset/${APP_DEPLOY} \
               mongooseim=ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA} \
               -n "$MIM_NS"
-
+            # ✅ Force rollout restart so pod always picks up new image
+            kubectl rollout restart statefulset/${APP_DEPLOY} -n "$MIM_NS"
             echo "⏳ Waiting for rollout to complete..."
             if ! kubectl rollout status statefulset/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s; then
               echo "❌ FAILED: rollout timed out"
