@@ -130,9 +130,6 @@ envFrom: []
 
 extraContainers: []
 
-extraVolumes: []
-extraVolumeMounts: []
-
 postgresqlPersistence:
   enabled: true
   size: 1Gi
@@ -155,17 +152,8 @@ extraVolumeMounts:
   - name: mongooseim-config
     mountPath: /etc/mongooseim
 
-extraContainers: []
-
-initContainers:
-  - name: copy-config
-    image: ghcr.io/anmol-11w/mongooseim99:latest
-    imagePullPolicy: Always
-    command:
-      - /bin/sh
-      - -c
-      - |
-        cp -r /etc/mongooseim/* /mnt/config/
-    volumeMounts:
-      - name: mongooseim-config
-        mountPath: /mnt/config
+# initContainers is intentionally empty here.
+# The copy-config init container is hardcoded in deployment.yaml
+# using {{ include "mongooseim.image" . }} so it always matches
+# the main container image tag set by CI.
+initContainers: []

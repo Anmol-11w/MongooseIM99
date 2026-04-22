@@ -7,6 +7,8 @@ metadata:
 spec:
   serviceName: "mim-mongooseim-headless"   
   replicas: {{ .Values.replicaCount }}
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       {{- include "mongooseim.selectorLabels" . | nindent 6 }}
@@ -32,6 +34,23 @@ spec:
       securityContext:
         runAsUser: 0
         runAsGroup: 0
+      # Init container always uses the SAME image as the main container
+      # so config is always in sync with the deployed version
+      initContainers:
+        - name: copy-config
+          image: {{ include "mongooseim.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              cp -r /etc/mongooseim/* /mnt/config/
+          volumeMounts:
+            - name: mongooseim-config
+              mountPath: /mnt/config
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       containers:
         - name: mongooseim
           image: {{ include "mongooseim.image" . }}
@@ -508,12 +527,8 @@ spec:
             - name: mongooseim-config
               mountPath: /etc/mongooseim
           {{- end }}
-      {{- with .Values.initContainers }}
-      initContainers:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
       {{- with .Values.extraContainers }}
-        {{- toYaml . | nindent 8 }}
+      {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.extraVolumes }}
       volumes:
