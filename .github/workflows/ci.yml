@@ -387,7 +387,7 @@ jobs:
             echo "✅ All required secrets present"
 
             get_generation() {
-              kubectl get deployment "$1" -n "$MIM_NS" \
+              kubectl get statefulset "$1" -n "$MIM_NS" \
                 -o jsonpath='{.metadata.generation}' 2>/dev/null || echo "absent"
             }
 
@@ -396,7 +396,7 @@ jobs:
 
             # ✅ Inject all secrets as env vars on the MongooseIM deployment
             echo "🔐 Injecting secrets as pod environment variables..."
-            kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
+            kubectl set env statefulset/${APP_DEPLOY} -n "$MIM_NS" \
               MIM_DB_HOST="${DB_HOST}" \
               MIM_DB_PORT="${DB_PORT:-5432}" \
               MIM_DB_NAME="${DB_NAME}" \
