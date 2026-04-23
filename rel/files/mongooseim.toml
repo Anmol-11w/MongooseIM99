@@ -165,7 +165,7 @@
 {{/outgoing_pools}}
 
 [services.service_bosh]
-  backend = "rdbms"
+  backend = "cets"
 
 {{#service_domain_db}}
 [services.service_domain_db]
@@ -220,7 +220,7 @@
   timeout_action = "kill"
 
 [modules.mod_stream_management]
-  backend = "rdbms"
+  backend = "cets"
 
 {{#mod_offline}}
 [modules.mod_offline]
