@@ -372,6 +372,7 @@ jobs:
             APP_DEPLOY="mim-mongooseim"
             PG_DEPLOY="mim-mongooseim-postgresql"
             REDIS_DEPLOY="mim-mongooseim-redis"
+            REPLICAS=2
 
             # ✅ Validate all required secrets are present before doing anything
             MISSING=""
@@ -396,10 +397,12 @@ jobs:
                 -o jsonpath='{.metadata.generation}' 2>/dev/null || echo "absent"
             }
 
+            # Snapshot PostgreSQL and Redis generations BEFORE deploy
+            # These must NOT change — we only touch the mongooseim statefulset
             PG_GEN_BEFORE="$(get_generation "$PG_DEPLOY")"
             REDIS_GEN_BEFORE="$(get_generation "$REDIS_DEPLOY")"
 
-            # ✅ Inject all secrets as env vars on the MongooseIM statefulset only
+            # ✅ Inject all secrets as env vars on the MongooseIM statefulset ONLY
             echo "🔐 Injecting secrets as pod environment variables..."
             kubectl set env statefulset/${APP_DEPLOY} -n "$MIM_NS" \
               MIM_DB_HOST="${DB_HOST}" \
@@ -423,25 +426,78 @@ jobs:
               --set image.tag="sha-${SHORT_SHA}" \
               --set image.pullPolicy="Always"
 
-            # ✅ Explicitly set image on statefulset — this is the source of truth
+            # ✅ Explicitly set image on statefulset — guarantees correct image
             echo "🔄 Setting image to sha-${SHORT_SHA} on statefulset..."
             kubectl set image statefulset/${APP_DEPLOY} \
               mongooseim=ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA} \
               -n "$MIM_NS"
 
-            # ✅ Force rollout restart so pod always picks up new image
-            echo "🔁 Restarting statefulset to pick up new image..."
-            kubectl rollout restart statefulset/${APP_DEPLOY} -n "$MIM_NS"
+            # ✅ Scale down ONLY mongooseim pods to 0 then back up
+            # This guarantees pods restart with new image even from CrashLoopBackOff
+            # PostgreSQL and Redis are NOT touched — they use separate deployments
+            echo "🔁 Scaling down mongooseim pods only (pg/redis untouched)..."
+            kubectl scale statefulset/${APP_DEPLOY} --replicas=0 -n "$MIM_NS"
 
-            # ✅ Wait for rollout — warn but don't fail if pod is still crashing
-            echo "⏳ Waiting for rollout to complete..."
+            # Wait for mongooseim pods to fully terminate
+            echo "⏳ Waiting for mongooseim pods to terminate..."
+            kubectl wait --for=delete pod \
+              -l app.kubernetes.io/name=mongooseim \
+              -n "$MIM_NS" --timeout=120s 2>/dev/null || \
+            kubectl wait --for=delete pod \
+              -l "app.kubernetes.io/instance=mim,app.kubernetes.io/name=mongooseim" \
+              -n "$MIM_NS" --timeout=120s 2>/dev/null || true
+
+            echo "🔁 Scaling mongooseim back up to ${REPLICAS} replicas..."
+            kubectl scale statefulset/${APP_DEPLOY} --replicas=${REPLICAS} -n "$MIM_NS"
+
+            # ✅ Wait for ALL pods to be READY — CI fails if pods don't come up healthy
+            echo "⏳ Waiting for all ${REPLICAS} pods to be ready (timeout 300s)..."
             if ! kubectl rollout status statefulset/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s; then
-              echo "⚠️  Rollout did not complete in 300s — pod may still be starting or crashing"
-              echo "⚠️  Image was updated to sha-${SHORT_SHA} — check pod logs for app errors"
+              echo "❌ DEPLOY FAILED: pods did not become ready in 300s"
+              echo ""
+              echo "📦 Pod status:"
               kubectl get pods -n "$MIM_NS" -o wide || true
+              echo ""
+              echo "📋 Pod-0 logs:"
               kubectl logs ${APP_DEPLOY}-0 -n "$MIM_NS" --tail=80 || true
+              echo ""
+              echo "📋 Pod-1 logs:"
+              kubectl logs ${APP_DEPLOY}-1 -n "$MIM_NS" --tail=80 || true
+              exit 1
+            fi
+            echo "✅ Rollout complete — all pods healthy"
+
+            # ✅ Verify both pods are running the correct image
+            echo "🔍 Verifying pod images..."
+            POD0_IMAGE=$(kubectl get pod ${APP_DEPLOY}-0 -n "$MIM_NS" \
+              -o jsonpath='{.spec.containers[0].image}' 2>/dev/null || echo "unknown")
+            POD1_IMAGE=$(kubectl get pod ${APP_DEPLOY}-1 -n "$MIM_NS" \
+              -o jsonpath='{.spec.containers[0].image}' 2>/dev/null || echo "unknown")
+            EXPECTED="ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
+
+            if [[ "$POD0_IMAGE" != "$EXPECTED" || "$POD1_IMAGE" != "$EXPECTED" ]]; then
+              echo "❌ DEPLOY FAILED: image mismatch!"
+              echo "   Expected: $EXPECTED"
+              echo "   Pod-0:    $POD0_IMAGE"
+              echo "   Pod-1:    $POD1_IMAGE"
+              exit 1
+            fi
+            echo "✅ Both pods running correct image: sha-${SHORT_SHA}"
+
+            # ✅ Verify CETS cluster is properly formed
+            echo "🔍 Verifying CETS cluster health..."
+            CETS_INFO=$(kubectl exec ${APP_DEPLOY}-0 -n "$MIM_NS" -- \
+              /usr/lib/mongooseim/bin/mongooseimctl cets systemInfo 2>/dev/null || echo "{}")
+
+            JOINED_COUNT=$(echo "$CETS_INFO" | grep -c "joinedNodes" || echo "0")
+            UNAVAILABLE=$(echo "$CETS_INFO" | grep '"unavailableNodes"' -A 3 | grep -v "unavailableNodes" | grep -c '"mongooseim@' || echo "0")
+
+            if [[ "$JOINED_COUNT" -gt 0 && "$UNAVAILABLE" -eq 0 ]]; then
+              echo "✅ CETS cluster is healthy"
+              echo "$CETS_INFO" | grep -E "joinedNodes|availableNodes|discoveryWorks" || true
             else
-              echo "✅ Rollout complete"
+              echo "⚠️  CETS cluster status unclear — check manually:"
+              echo "$CETS_INFO"
             fi
 
             # ✅ Verify PostgreSQL and Redis were NOT changed
@@ -460,7 +516,7 @@ jobs:
 
             echo "✅ PostgreSQL and Redis deployments unchanged"
             echo ""
-            echo "✅ Deploy triggered for sha-${SHORT_SHA}"
+            echo "✅ Deployment complete! sha-${SHORT_SHA}"
             echo ""
             echo "📦 Running pods:"
             kubectl get pods -n "$MIM_NS"
