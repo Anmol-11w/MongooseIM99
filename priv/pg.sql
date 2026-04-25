@@ -542,6 +542,17 @@ CREATE INDEX i_phone_contacts_username
 CREATE INDEX idx_phone_contacts_last7
     ON phone_contacts(server, last7);
 
+CREATE TABLE email_contacts (
+    email VARCHAR(255) NOT NULL,
+    server VARCHAR(250) NOT NULL,
+    username VARCHAR(250) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    PRIMARY KEY (email, server)
+);
+
+CREATE INDEX i_email_contacts_username
+    ON email_contacts(server, username);
+
 CREATE TABLE user_privacy (
     server VARCHAR(250) NOT NULL,
     username VARCHAR(250) NOT NULL,

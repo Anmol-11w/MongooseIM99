@@ -1,5 +1,5 @@
 [general]
-  loglevel = "info"
+  loglevel = "warning"
   hosts = [{{{hosts}}}]
   host_types = [{{{host_types}}}]
   default_server_domain = {{{default_server_domain}}}
@@ -172,13 +172,12 @@
 
   [outgoing_pools.rdbms.default.connection]
     driver = "pgsql"
-    host = {{{rdbms_host}}}
-    database = {{{rdbms_database}}}
-    username = {{{rdbms_username}}}
-    password = {{{rdbms_password}}}
-    tls.required = true
-    tls.cacertfile = "priv/ssl/cacert.pem"
-    tls.server_name_indication.enabled = false
+    port = 5433
+    host = "localhost"
+    database = "mongooseim"
+    username = "mongooseim"
+    password = "mongooseim_secret"
+    tls.required = false
 {{/outgoing_pools}}
 
 [services.service_bosh]
@@ -227,6 +226,9 @@
 
   [modules.mod_mam.pm]
     archive_chat_markers = true
+
+  [modules.mod_mam.muc]
+    host = "muclight.@HOST@"
 
 [modules.mod_inbox]
   backend = "rdbms"
@@ -284,6 +286,14 @@
 [modules.mod_contact_sync]
   backend="rdbms"
   add_to_roster = true
+
+[modules.mod_email_sync]
+  backend="rdbms"
+  add_to_roster = true
+
+[modules.mod_muc_light]
+  backend = "rdbms"
+  rooms_in_rosters = true
 
 [modules.mod_jingle]
 

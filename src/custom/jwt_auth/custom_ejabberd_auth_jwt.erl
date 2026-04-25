@@ -68,13 +68,23 @@ normalize_claim_user(ClaimUser, LServer) ->
 %% the token carries a non-empty `phone_number' claim.
 -spec on_auth_success(mongooseim:host_type(), jid:lserver(), jid:luser(), map()) -> ok.
 on_auth_success(HostType, LServer, LUser, TokenData) ->
-    maybe_store_phone(HostType, LServer, LUser, TokenData).
+    maybe_store_phone(HostType, LServer, LUser, TokenData),
+    maybe_store_email(HostType, LServer, LUser, TokenData).
 
 -spec maybe_store_phone(mongooseim:host_type(), jid:lserver(), jid:luser(), map()) -> ok.
 maybe_store_phone(HostType, LServer, LUser, TokenData) ->
     case TokenData of
         #{phone_number := Phone} when is_binary(Phone), Phone =/= <<>> ->
             mongoose_hooks:jwt_user_phone(HostType, LServer, LUser, Phone);
+        _ ->
+            ok
+    end.
+
+-spec maybe_store_email(mongooseim:host_type(), jid:lserver(), jid:luser(), map()) -> ok.
+maybe_store_email(HostType, LServer, LUser, TokenData) ->
+    case TokenData of
+        #{email := Email} when is_binary(Email), Email =/= <<>> ->
+            mongoose_hooks:jwt_user_email(HostType, LServer, LUser, Email);
         _ ->
             ok
     end.
