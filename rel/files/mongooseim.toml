@@ -219,6 +219,14 @@
 [modules.mod_last]
 {{{mod_last}}}
 {{/mod_last}}
+{{#mod_last_seen}}
+[modules.mod_last_seen]
+{{{mod_last_seen}}}
+{{/mod_last_seen}}
+{{#mod_user_privacy}}
+[modules.mod_user_privacy]
+{{{mod_user_privacy}}}
+{{/mod_user_privacy}}
 [modules.mod_offline_stub]
 
 [modules.mod_mam]
