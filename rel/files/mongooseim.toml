@@ -227,6 +227,10 @@
 [modules.mod_user_privacy]
 {{{mod_user_privacy}}}
 {{/mod_user_privacy}}
+{{#mod_broadcast}}
+[modules.mod_broadcast]
+{{{mod_broadcast}}}
+{{/mod_broadcast}}
 [modules.mod_offline_stub]
 
 [modules.mod_mam]
@@ -301,7 +305,6 @@
 
 [modules.mod_muc_light]
   backend = "rdbms"
-  rooms_in_rosters = true
 
 [modules.mod_jingle]
 

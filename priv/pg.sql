@@ -560,3 +560,19 @@ CREATE TABLE user_privacy (
     value VARCHAR(20) NOT NULL DEFAULT 'everyone',
     PRIMARY KEY (server, username, field)
 );
+
+CREATE TABLE broadcast_lists (
+    id BIGSERIAL PRIMARY KEY,
+    server VARCHAR(250) NOT NULL,
+    owner VARCHAR(250) NOT NULL,
+    name VARCHAR(250) NOT NULL,
+    created_at BIGINT NOT NULL
+);
+
+CREATE INDEX i_broadcast_lists_owner ON broadcast_lists(server, owner);
+
+CREATE TABLE broadcast_list_members (
+    list_id BIGINT NOT NULL REFERENCES broadcast_lists(id) ON DELETE CASCADE,
+    member_jid VARCHAR(500) NOT NULL,
+    PRIMARY KEY (list_id, member_jid)
+);
