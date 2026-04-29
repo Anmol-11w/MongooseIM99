@@ -31,22 +31,11 @@
 %%% Behaviour callbacks (implemented by each backend)
 %%%----------------------------------------------------------------------
 
-%% @doc Initialise the backend (e.g. prepare SQL statements).
 -callback init(mongooseim:host_type(), gen_mod:module_opts()) -> ok.
 
-%% @doc Persist or update the email address for a user.
-%%
-%% The call is an upsert: if a record already exists for `(Email, LServer)'
-%% the `username' is updated in place.  This handles the case where a user
-%% changes their email between logins.
 -callback store_email(mongooseim:host_type(), jid:lserver(), jid:luser(), binary()) ->
     ok | {error, term()}.
 
-%% @doc Return `{Email, Username}' pairs for all supplied emails that
-%% belong to registered users on `LServer'.
-%%
-%% Emails that have no matching user are silently omitted from the result.
-%% The caller is responsible for filtering out their own JID.
 -callback lookup_emails(mongooseim:host_type(), jid:lserver(), [binary()]) ->
     [{Email :: binary(), Username :: binary()}].
 
