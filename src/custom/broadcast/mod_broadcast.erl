@@ -268,14 +268,19 @@ handle_broadcast_message(HostType, From, ListId, Packet, Acc) ->
 
 fan_out(HostType, FromBare, ListId, Packet) ->
     LServer = FromBare#jid.lserver,
+    FromBin = jid:to_binary(FromBare),
     Members = mod_broadcast_backend:get_members(HostType, LServer, ListId),
     lists:foreach(
       fun(MemberJidBin) ->
-          case jid:from_binary(MemberJidBin) of
-              error -> ok;
-              MemberJid ->
-                  Stanza = strip_id(Packet),
-                  ejabberd_router:route(FromBare, MemberJid, Stanza)
+          case MemberJidBin =:= FromBin of
+              true -> ok;
+              false ->
+                  case jid:from_binary(MemberJidBin) of
+                      error -> ok;
+                      MemberJid ->
+                          Stanza = strip_id(Packet),
+                          ejabberd_router:route(FromBare, MemberJid, Stanza)
+                  end
           end
       end, Members).
 
