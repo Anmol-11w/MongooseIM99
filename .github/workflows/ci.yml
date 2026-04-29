@@ -360,7 +360,7 @@ jobs:
 
             git fetch origin "${DEPLOY_REF}"
             git checkout "${DEPLOY_REF}" || git checkout -b "${DEPLOY_REF}" "origin/${DEPLOY_REF}"
-            git pull --ff-only origin "${DEPLOY_REF}"
+            git reset --hard "origin/${DEPLOY_REF}"
 
             SHORT_SHA="${SHORT_SHA:0:7}"
             MIM_NS="mim"
