@@ -231,6 +231,10 @@
 [modules.mod_broadcast]
 {{{mod_broadcast}}}
 {{/mod_broadcast}}
+{{#mod_channel}}
+[modules.mod_channel]
+{{{mod_channel}}}
+{{/mod_channel}}
 [modules.mod_offline_stub]
 
 [modules.mod_mam]

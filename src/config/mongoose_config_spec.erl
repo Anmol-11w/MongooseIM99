@@ -773,6 +773,7 @@ configurable_modules() ->
      mod_ai_bot,
      mod_ai_bot_call,
      mod_broadcast,
+     mod_channel,
      mod_jingle].
 
 %% path: (host_config[].)modules.*.iqdisc
