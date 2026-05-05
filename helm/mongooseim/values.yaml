@@ -29,7 +29,7 @@ postgresqlBackend:
   database: "mongooseim"
   username: "mongooseim"
   password: "mongooseim_secret"
-  
+
 rabbitmq:
   enabled: true
   image: rabbitmq:3.13-management
@@ -61,10 +61,9 @@ redis:
       cpu: "500m"
       memory: "256Mi"
 
-# ✅ ADDED - was missing, caused nil pointer error
 postgresql:
   enabled: true
-  image: postgres:15
+  image: postgres:16
   imagePullPolicy: IfNotPresent
   database: "mongooseim"
   username: "mongooseim"
