@@ -132,6 +132,19 @@ data:
         host = "127.0.0.1"
         port = 6379
 
+    [outgoing_pools.rabbit.event_pusher]
+      scope = "host"
+      workers = 10
+
+      [outgoing_pools.rabbit.event_pusher.connection]
+        host = "rabbitmq"
+        port = 5672
+        username = "mongooseim"
+        password = "secret"
+        virtual_host = "mongooseim"
+        confirms_enabled = true
+        max_worker_queue_len = 1000
+
     [services.service_bosh]
 
     [services.service_mongoose_system_metrics]
@@ -211,6 +224,22 @@ data:
       [[modules.mod_pubsub.pep_mapping]]
         namespace = "urn:xmpp:avatar:metadata"
         node = "avatar_metadata"
+
+    # Publishes XMPP events to RabbitMQ. Consumed by wingtrill-notifier
+    # which fans out FCM push notifications.
+    [modules.mod_event_pusher]
+
+      [modules.mod_event_pusher.rabbit]
+        presence_exchange.name = "presence"
+        presence_exchange.type = "topic"
+        chat_msg_exchange.name = "chat_msg"
+        chat_msg_exchange.type = "topic"
+        chat_msg_exchange.sent_topic = "chat_msg_sent"
+        chat_msg_exchange.recv_topic = "chat_msg_recv"
+        groupchat_msg_exchange.name = "groupchat_msg"
+        groupchat_msg_exchange.type = "topic"
+        groupchat_msg_exchange.sent_topic = "groupchat_msg_sent"
+        groupchat_msg_exchange.recv_topic = "groupchat_msg_recv"
 
     [modules.mod_http_upload]
       host = "upload.xmpp-mongo.wingtrill.com"
