@@ -8,37 +8,6 @@ erlang:
   distPortMax: 52200
 
 image:
-  repository: ghcr.io/jaspreet-android/wingtrill-mongooseim
-  tag: "latest"
-  pullPolicy: Always
-
-postgresqlBackend:
-  enabled: true
-  host: "mim-mongooseim-postgresql"
-  port: 5432
-  database: "mongooseim"
-  username: "mongooseim"
-  password: "mongooseim_secret"
-
-postgresql:
-  enabled: true
-  image: postgres:16
-  imagePullPolicy: IfNotPresent
-  rootPassword: "secret"
-  database: "mongooseim"
-  username: "mongooseim"
-  password: "mongooseim_secret"
-  persistence:
-    enabled: true
-    size: 5Gi
-    storageClass: ""
-  resources:
-    requests:
-      cpu: "250m"
-      memory: "256Mi"
-    limits:
-      cpu: "1"
-      memory: "512Mi"
 
 redisBackend:
   enabled: true
@@ -48,25 +17,24 @@ redisBackend:
   username: ""
   password: ""
 
-
-      enabled: true
-      image: rabbitmq:3.13-management
-      imagePullPolicy: IfNotPresent
-      username: "mongooseim"
-      password: "mongooseim_secret"
-      vhost: "mongooseim"
-      resources:
-        requests:
-          cpu: "100m"
-          memory: "128Mi"
-        limits:
-          cpu: "500m"
-          memory: "256Mi"
-      persistence:
-        enabled: true
-        size: 1Gi
-        storageClass: ""
 redis:
+  enabled: true
+  image: rabbitmq:3.13-management
+  imagePullPolicy: IfNotPresent
+  username: "mongooseim"
+  password: "mongooseim_secret"
+  vhost: "mongooseim"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
   enabled: true
   image: redis:7
   imagePullPolicy: IfNotPresent
