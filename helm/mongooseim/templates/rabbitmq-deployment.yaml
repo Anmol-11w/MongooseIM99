@@ -39,12 +39,12 @@ spec:
           livenessProbe:
             tcpSocket:
               port: amqp
-            initialDelaySeconds: 20
+            initialDelaySeconds: 60
             periodSeconds: 10
           readinessProbe:
             tcpSocket:
               port: amqp
-            initialDelaySeconds: 10
+            initialDelaySeconds: 45
             periodSeconds: 5
           {{- with .Values.rabbitmq.resources }}
           resources:

@@ -415,7 +415,9 @@ jobs:
              --set image.repository="ghcr.io/jaspreet-android/wingtrill-mongooseim" \
              --set image.tag="sha-${SHORT_SHA}" \
              --set image.pullPolicy="Always"
-
+             --set postgresql.enabled=false \
+             --set rabbitmq.enabled=false \
+             --set redis.enabled=false
             # Force restart so new deployment.yaml startup script runs in pods
             echo "🔄 Restarting pods to apply new startup script..."
             kubectl rollout restart deployment/${APP_DEPLOY} -n "$MIM_NS"
