@@ -1,4 +1,3 @@
-##
 replicaCount: 2
 
 erlang:
@@ -53,6 +52,27 @@ redis:
     limits:
       cpu: "500m"
       memory: "256Mi"
+
+# ✅ ADDED - was missing, caused nil pointer error
+postgresql:
+  enabled: true
+  image: postgres:15
+  imagePullPolicy: IfNotPresent
+  database: "mongooseim"
+  username: "mongooseim"
+  password: "mongooseim_secret"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+
 imagePullSecrets:
   - name: ghcr-secret
 
