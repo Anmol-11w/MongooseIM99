@@ -22,6 +22,14 @@ redisBackend:
   username: ""
   password: ""
 
+postgresqlBackend:
+  enabled: true
+  host: "mim-mongooseim-postgresql"
+  port: 5432
+  database: "mongooseim"
+  username: "mongooseim"
+  password: "mongooseim_secret"
+  
 rabbitmq:
   enabled: true
   image: rabbitmq:3.13-management
