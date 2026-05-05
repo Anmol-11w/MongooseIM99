@@ -17,7 +17,7 @@ redisBackend:
   username: ""
   password: ""
 
-redis:
+rabbitmq:
   enabled: true
   image: rabbitmq:3.13-management
   imagePullPolicy: IfNotPresent
@@ -35,6 +35,8 @@ redis:
     enabled: true
     size: 1Gi
     storageClass: ""
+
+redis:
   enabled: true
   image: redis:7
   imagePullPolicy: IfNotPresent
@@ -45,7 +47,6 @@ redis:
     limits:
       cpu: "500m"
       memory: "256Mi"
-
 imagePullSecrets:
   - name: ghcr-secret
 
