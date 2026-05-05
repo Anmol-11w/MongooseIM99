@@ -27,3 +27,17 @@ Wait for the external IP to be assigned:
   kubectl get svc {{ include "mongooseim.fullname" . }} -n {{ .Release.Namespace }} --watch
 
 {{- end }}
+
+RabbitMQ is deployed as part of this release.
+
+- AMQP port: 5672 (svc: {{ include "mongooseim.fullname" . }}-rabbitmq)
+- Management UI: 15672 (svc: {{ include "mongooseim.fullname" . }}-rabbitmq)
+  
+Default credentials:
+  user: {{ .Values.rabbitmq.username }}
+  pass: {{ .Values.rabbitmq.password }}
+  vhost: {{ .Values.rabbitmq.vhost }}
+
+To access the management UI:
+  kubectl port-forward svc/{{ include "mongooseim.fullname" . }}-rabbitmq 15672:15672 -n {{ .Release.Namespace }}
+  Then open http://localhost:15672

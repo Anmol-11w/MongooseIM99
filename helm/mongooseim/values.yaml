@@ -48,6 +48,24 @@ redisBackend:
   username: ""
   password: ""
 
+
+      enabled: true
+      image: rabbitmq:3.13-management
+      imagePullPolicy: IfNotPresent
+      username: "mongooseim"
+      password: "mongooseim_secret"
+      vhost: "mongooseim"
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+        limits:
+          cpu: "500m"
+          memory: "256Mi"
+      persistence:
+        enabled: true
+        size: 1Gi
+        storageClass: ""
 redis:
   enabled: true
   image: redis:7
