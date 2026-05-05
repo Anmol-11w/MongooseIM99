@@ -7,7 +7,13 @@ erlang:
   distPort: 52100
   distPortMax: 52200
 
-image:
+rabbitmqBackend:
+  enabled: true
+  host: "mim-mongooseim-rabbitmq"
+  port: 5672
+  username: "mongooseim"
+  password: "mongooseim_secret"
+  vhost: "mongooseim"
 
 redisBackend:
   enabled: true
