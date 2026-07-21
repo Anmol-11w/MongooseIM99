@@ -41,6 +41,8 @@ mechanism() ->
 -spec mech_new(Host   :: jid:server(),
                Creds  :: mongoose_credentials:t(),
                Socket :: term()) -> {ok, tuple()}.
+mech_new(_Host, Creds, #{listener_opts := #{cookie_jwt := Jwt}}) when is_binary(Jwt) ->
+    {ok, mongoose_credentials:extend(Creds, [{cookie_jwt, Jwt}])};
 mech_new(_Host, Creds, _Socket) ->
     {ok, Creds}.
 
@@ -50,13 +52,24 @@ mech_new(_Host, Creds, _Socket) ->
 mech_step(Creds, ClientIn) ->
     case prepare(ClientIn) of
         [AuthzId, User, Password] ->
+            FinalPassword = maybe_use_cookie_jwt(Creds, Password),
             Request = mongoose_credentials:extend(Creds,
                                                   [{username, User},
-                                                   {password, Password},
+                                                   {password, FinalPassword},
                                                    {authzid, AuthzId}]),
             authorize(Request, User);
         _ ->
             {error, <<"bad-protocol">>}
+    end.
+
+%% If the WebSocket upgrade carried an HttpOnly auth cookie, use the JWT from
+%% that cookie as the SASL password. The client-supplied password is ignored
+%% when a cookie JWT is present, so attackers cannot bypass cookie auth by
+%% supplying a different value in the SASL exchange.
+maybe_use_cookie_jwt(Creds, ClientPassword) ->
+    case mongoose_credentials:get(Creds, cookie_jwt, undefined) of
+        Jwt when is_binary(Jwt), Jwt =/= <<>> -> Jwt;
+        _ -> ClientPassword
     end.
 
 authorize(Request, User) ->

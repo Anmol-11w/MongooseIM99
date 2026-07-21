@@ -5,7 +5,7 @@ metadata:
   labels:
     app: mongooseim
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: mongooseim
@@ -16,8 +16,8 @@ spec:
     spec:
       containers:
         - name: mongooseim
-          image: ghcr.io/anmol-11w/mongooseim99:latest
-          imagePullPolicy: Always        
+          image: ghcr.io/jaspreet-android/wingtrill-mongooseim:latest
+          imagePullPolicy: Always
           ports:
             - name: xmpp-client
               containerPort: 5222

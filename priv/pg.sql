@@ -526,3 +526,98 @@ CREATE TABLE blocklist (
     reason TEXT,
     PRIMARY KEY (luser, lserver)
 );
+
+CREATE TABLE phone_contacts (
+    phone VARCHAR(20) NOT NULL,
+    last7 VARCHAR(7) NOT NULL,
+    server VARCHAR(250) NOT NULL,
+    username VARCHAR(250) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    PRIMARY KEY (phone, server)
+);
+
+CREATE INDEX i_phone_contacts_username
+    ON phone_contacts(server, username);
+
+CREATE INDEX idx_phone_contacts_last7
+    ON phone_contacts(server, last7);
+
+CREATE TABLE email_contacts (
+    email VARCHAR(255) NOT NULL,
+    server VARCHAR(250) NOT NULL,
+    username VARCHAR(250) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    PRIMARY KEY (email, server)
+);
+
+CREATE INDEX i_email_contacts_username
+    ON email_contacts(server, username);
+
+CREATE TABLE user_privacy (
+    server VARCHAR(250) NOT NULL,
+    username VARCHAR(250) NOT NULL,
+    field VARCHAR(50) NOT NULL,
+    value VARCHAR(20) NOT NULL DEFAULT 'everyone',
+    PRIMARY KEY (server, username, field)
+);
+
+CREATE TABLE broadcast_lists (
+    id BIGSERIAL PRIMARY KEY,
+    server VARCHAR(250) NOT NULL,
+    owner VARCHAR(250) NOT NULL,
+    name VARCHAR(250) NOT NULL,
+    created_at BIGINT NOT NULL
+);
+
+CREATE INDEX i_broadcast_lists_owner ON broadcast_lists(server, owner);
+
+CREATE TABLE broadcast_list_members (
+    list_id BIGINT NOT NULL REFERENCES broadcast_lists(id) ON DELETE CASCADE,
+    member_jid VARCHAR(500) NOT NULL,
+    PRIMARY KEY (list_id, member_jid)
+);
+
+CREATE TABLE channels (
+    id BIGSERIAL PRIMARY KEY,
+    server VARCHAR(250) NOT NULL,
+    owner VARCHAR(250) NOT NULL,
+    handle VARCHAR(64) NOT NULL,
+    name VARCHAR(250) NOT NULL,
+    description VARCHAR(2000) NOT NULL DEFAULT '',
+    channel_type VARCHAR(16) NOT NULL DEFAULT 'public',
+    created_at BIGINT NOT NULL,
+    UNIQUE (server, handle)
+);
+
+CREATE INDEX i_channels_owner ON channels(server, owner);
+CREATE INDEX i_channels_search ON channels(server, channel_type, created_at DESC);
+
+CREATE TABLE channel_admins (
+    channel_id BIGINT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    admin_jid VARCHAR(500) NOT NULL,
+    role VARCHAR(16) NOT NULL DEFAULT 'admin',
+    added_at BIGINT NOT NULL,
+    PRIMARY KEY (channel_id, admin_jid)
+);
+
+CREATE INDEX i_channel_admins_jid ON channel_admins(admin_jid);
+
+CREATE TABLE channel_subscribers (
+    channel_id BIGINT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    subscriber_jid VARCHAR(500) NOT NULL,
+    joined_at BIGINT NOT NULL,
+    PRIMARY KEY (channel_id, subscriber_jid)
+);
+
+CREATE INDEX i_channel_subscribers_jid ON channel_subscribers(subscriber_jid);
+CREATE INDEX i_channel_subscribers_chan_join ON channel_subscribers(channel_id, joined_at);
+
+CREATE TABLE channel_messages (
+    id BIGSERIAL PRIMARY KEY,
+    channel_id BIGINT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    sender_jid VARCHAR(500) NOT NULL,
+    body TEXT NOT NULL,
+    sent_at BIGINT NOT NULL
+);
+
+CREATE INDEX i_channel_messages_chan ON channel_messages(channel_id, id DESC);

@@ -72,9 +72,57 @@ init(Req, Opts = #{timeout := Timeout}) ->
     Req1 = add_sec_websocket_protocol_header(Req),
     ?LOG_DEBUG(#{what => ws_init, text => <<"New websockets request">>,
                  req => Req, opts => Opts}),
-    AllModOpts = Opts#{peer => Peer, peer_cert => PeerCert},
+    CookieJwt = extract_auth_cookie(Req),
+    AllModOpts = Opts#{peer => Peer, peer_cert => PeerCert, cookie_jwt => CookieJwt},
     %% upgrade protocol
     {cowboy_websocket, Req1, AllModOpts, #{idle_timeout => Timeout}}.
+
+extract_auth_cookie(Req) ->
+    RawCookieHeader = cowboy_req:header(<<"cookie">>, Req, undefined),
+    Origin = cowboy_req:header(<<"origin">>, Req, undefined),
+    Host = cowboy_req:header(<<"host">>, Req, undefined),
+    Referer = cowboy_req:header(<<"referer">>, Req, undefined),
+    Peer = cowboy_req:peer(Req),
+    try cowboy_req:parse_cookies(Req) of
+        Cookies ->
+            CookieSummary = [{N, byte_size(V)} || {N, V} <- Cookies],
+            Jwt = proplists:get_value(<<"wingtrill_token">>, Cookies, undefined),
+            JwtLen = case Jwt of
+                         undefined -> 0;
+                         B when is_binary(B) -> byte_size(B)
+                     end,
+            JwtPrefix = case Jwt of
+                            undefined -> <<>>;
+                            B1 when is_binary(B1), byte_size(B1) >= 8 ->
+                                binary:part(B1, 0, 8);
+                            B1 -> B1
+                        end,
+            ?LOG_INFO(#{what => ws_cookie_debug,
+                        text => <<"WebSocket upgrade cookie inspection">>,
+                        raw_cookie_header_present => RawCookieHeader =/= undefined,
+                        raw_cookie_header_length =>
+                            case RawCookieHeader of
+                                undefined -> 0;
+                                B2 -> byte_size(B2)
+                            end,
+                        cookie_names_and_lengths => CookieSummary,
+                        wingtrill_token_present => Jwt =/= undefined,
+                        wingtrill_token_length => JwtLen,
+                        wingtrill_token_prefix => JwtPrefix,
+                        origin => Origin,
+                        host => Host,
+                        referer => Referer,
+                        peer => Peer}),
+            Jwt
+    catch
+        Class:Reason ->
+            ?LOG_WARNING(#{what => ws_cookie_parse_failed,
+                           text => <<"Failed to parse Cookie header on WS upgrade">>,
+                           class => Class, reason => Reason,
+                           raw_cookie_header_present => RawCookieHeader =/= undefined,
+                           origin => Origin, host => Host, peer => Peer}),
+            undefined
+    end.
 
 terminate(_Reason, _Req, #ws_state{fsm_pid = undefined}) ->
     ok;
@@ -188,7 +236,7 @@ maybe_start_fsm([#xmlel{ name = <<"open">> }],
                 #ws_state{fsm_pid = undefined,
                           opts = #{ip_tuple := IPTuple, port := Port,
                                    state_timeout := StateTimeout,
-                                   backwards_compatible_session := BackwardsCompatible}} = State) ->
+                                   backwards_compatible_session := BackwardsCompatible} = WsOpts} = State) ->
     Opts = #{
         access => all,
         shaper => none,
@@ -201,7 +249,8 @@ maybe_start_fsm([#xmlel{ name = <<"open">> }],
         ip_tuple => IPTuple,
         ip_address => inet:ntoa(IPTuple),
         ip_version => mongoose_listener_config:ip_version(IPTuple),
-        port => Port, proto => tcp},
+        port => Port, proto => tcp,
+        cookie_jwt => maps:get(cookie_jwt, WsOpts, undefined)},
     do_start_fsm(Opts, State);
 maybe_start_fsm(_Els, #ws_state{fsm_pid = undefined} = State) ->
     {stop, State};

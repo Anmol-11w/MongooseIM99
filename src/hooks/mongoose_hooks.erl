@@ -12,6 +12,8 @@
          adhoc_sm_commands/4,
          anonymous_purge/3,
          auth_failed/3,
+         jwt_user_phone/4,
+         jwt_user_email/4,
          does_user_exist/3,
          failed_to_store_message/1,
          filter_local_packet/1,
@@ -47,6 +49,7 @@
 -export([get_pep_recipients/2,
          filter_pep_recipient/3,
          c2s_stream_features/3,
+         c2s_debug_traffic/2,
          check_bl_c2s/1,
          forbidden_session/3,
          session_opening_allowed_for_user/2]).
@@ -200,6 +203,30 @@ anonymous_purge(LServer, Acc, LUser) ->
 auth_failed(HostType, Server, Username) ->
     Params = #{username => Username, server => Server},
     run_hook_for_host_type(auth_failed, HostType, ok, Params).
+
+%%% @doc The `jwt_user_phone' hook is called when a JWT authentication
+%%% succeeds and the token contains a phone_number claim.
+-spec jwt_user_phone(HostType, LServer, LUser, Phone) -> Result when
+    HostType :: mongooseim:host_type(),
+    LServer :: jid:lserver(),
+    LUser :: jid:luser(),
+    Phone :: binary(),
+    Result :: ok.
+jwt_user_phone(HostType, LServer, LUser, Phone) ->
+    Params = #{lserver => LServer, luser => LUser, phone => Phone},
+    run_hook_for_host_type(jwt_user_phone, HostType, ok, Params).
+
+%%% @doc The `jwt_user_email' hook is called when a JWT authentication
+%%% succeeds and the token contains a non-empty `email' claim.
+-spec jwt_user_email(HostType, LServer, LUser, Email) -> Result when
+    HostType :: mongooseim:host_type(),
+    LServer :: jid:lserver(),
+    LUser :: jid:luser(),
+    Email :: binary(),
+    Result :: ok.
+jwt_user_email(HostType, LServer, LUser, Email) ->
+    Params = #{lserver => LServer, luser => LUser, email => Email},
+    run_hook_for_host_type(jwt_user_email, HostType, ok, Params).
 
 -spec does_user_exist(HostType, Jid, RequestType) -> Result when
       HostType :: mongooseim:host_type(),
@@ -525,6 +552,12 @@ sasl2_start(HostType, Acc, Element) ->
     Result :: mongoose_acc:t().
 sasl2_success(HostType, Acc, Params, Creds) ->
     run_hook_for_host_type(sasl2_success, HostType, Acc, Params#{creds => Creds}).
+
+-spec c2s_debug_traffic(Acc, Arg) -> mongoose_acc:t() when
+    Acc :: mongoose_acc:t() | no_acc,
+    Arg :: service_traffic:traced_packet().
+c2s_debug_traffic(Acc, Arg) ->
+    run_global_hook(c2s_debug_traffic, Acc, #{arg => Arg}).
 
 -spec check_bl_c2s(IP) -> Result when
     IP ::  inet:ip_address(),

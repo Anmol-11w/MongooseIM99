@@ -1,19 +1,84 @@
-# Default values for mongooseim.
-
 replicaCount: 2
 
-image:
-  repository: ghcr.io/anmol-11w/mongooseim99
-  tag: "latest"
-  pullPolicy: Always
+erlang:
+  nodePrefix: "mongooseim"
+  cookie: "mongooseim"
+  distPort: 52100
+  distPortMax: 52200
 
-mysqlBackend:
+rabbitmqBackend:
   enabled: true
-  host: "127.0.0.1"
-  port: 3306
+  host: "mim-mongooseim-rabbitmq"
+  port: 5672
+  username: "mongooseim"
+  password: "mongooseim_secret"
+  vhost: "mongooseim"
+
+redisBackend:
+  enabled: true
+  host: "mim-mongooseim-redis"
+  port: 6379
+  database: 0
+  username: ""
+  password: ""
+
+postgresqlBackend:
+  enabled: true
+  host: "mim-mongooseim-postgresql"
+  port: 5432
   database: "mongooseim"
   username: "mongooseim"
-  password: "mongooseim"
+  password: "mongooseim_secret"
+
+rabbitmq:
+  enabled: true
+  image: rabbitmq:3.13-management
+  imagePullPolicy: IfNotPresent
+  username: "mongooseim"
+  password: "mongooseim_secret"
+  vhost: "mongooseim"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+
+redis:
+  enabled: true
+  image: redis:7
+  imagePullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
+postgresql:
+  enabled: true
+  image: postgres:16
+  imagePullPolicy: IfNotPresent
+  database: "mongooseim"
+  username: "mongooseim"
+  password: "mongooseim_secret"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
 
 imagePullSecrets:
   - name: ghcr-secret
@@ -38,15 +103,23 @@ service:
   ports:
     xmppClient:
       port: 5222
+      nodePort: 30222
       protocol: TCP
     xmppServer:
       port: 5269
+      nodePort: 30269
       protocol: TCP
     bosh:
       port: 5280
+      nodePort: 30280
       protocol: TCP
     admin:
       port: 8888
+      nodePort: 30888
+      protocol: TCP
+    metrics:
+      port: 9091
+      nodePort: 30091
       protocol: TCP
 
 resources:
@@ -70,67 +143,22 @@ readinessProbe:
   periodSeconds: 10
 
 env: []
-# Extra environment variables, e.g.:
-# - name: MIM_LOGLEVEL
-#   value: "warning"
-
 envFrom: []
 
-extraContainers:
-  - name: redis
-    image: redis:7
-    imagePullPolicy: IfNotPresent
-    ports:
-      - name: redis
-        containerPort: 6379
-        protocol: TCP
-
-  - name: mysql
-    image: mysql:8.0
-    imagePullPolicy: IfNotPresent
-    env:
-      - name: MYSQL_ROOT_PASSWORD
-        value: "secret"
-      - name: MYSQL_DATABASE
-        value: "mongooseim"
-      - name: MYSQL_USER
-        value: "mongooseim"
-      - name: MYSQL_PASSWORD
-        value: "mongooseim"
-    command:
-      - sh
-      - -ec
-      - |
-        docker-entrypoint.sh mysqld &
-        pid="$!"
-        until mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent; do
-          sleep 2
-        done
-        mysql -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS ${MYSQL_DATABASE};"
-        mysql -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" <<'SQL'
-        CREATE TABLE IF NOT EXISTS users (
-            username varchar(250),
-            server varchar(250),
-            password text NOT NULL,
-            pass_details text,
-            created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (server, username)
-        ) CHARACTER SET utf8mb4
-          ROW_FORMAT=DYNAMIC;
-
-        CREATE TABLE IF NOT EXISTS mongoose_cluster_id (
-            k varchar(50) PRIMARY KEY,
-            v text
-        );
-        SQL
-        wait "$pid"
-    ports:
-      - name: mysql
-        containerPort: 3306
-        protocol: TCP
+extraContainers: []
 
 extraVolumes: []
 extraVolumeMounts: []
+
+postgresqlPersistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
+
+redisPersistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
 
 nodeSelector: {}
 tolerations: []

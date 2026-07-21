@@ -19,7 +19,9 @@ RUN apt-get update \
 COPY . .
 
 RUN ./tools/configure system=yes prefix=/ \
-    && make rel install
+    && test -f rel/prod.vars-toml.config \
+    && make rel install \
+    && test -f /etc/mongooseim/mongooseim.toml
 
 
 FROM debian:trixie-slim AS runtime
@@ -48,6 +50,10 @@ COPY --from=builder /var/lock/mongooseim /var/lock/mongooseim
 
 RUN chown -R mongooseim:mongooseim /var/lib/mongooseim /var/log/mongooseim /var/lock/mongooseim
 
+RUN ln -sf /etc/mongooseim/mongooseim.toml /etc/mongooseim.toml
+
+ENV EJABBERD_CONFIG_PATH=/etc/mongooseim.toml
+
 WORKDIR /usr/lib/mongooseim
 
 EXPOSE 5222 5269 5280 5285 5541 5551 5561 8088 8089 8888 9091
@@ -56,7 +62,5 @@ VOLUME ["/var/lib/mongooseim", "/var/log/mongooseim"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
   CMD ["/usr/lib/mongooseim/bin/mongooseim", "ping"]
-
-USER mongooseim
 
 CMD ["/usr/lib/mongooseim/bin/mongooseim", "foreground"]

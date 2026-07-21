@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main, ci ]
+    branches: [ CI ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -16,15 +16,10 @@ env:
   KEEP_COVER_RUNNING: '1'
   SKIP_AUTO_COMPILE: 'true'
 
-  # required for tools/gh-upload-to-s3.sh script
-  # AWS_DEFAULT_REGION: "${{ secrets.AWS_DEFAULT_REGION }}"
-  # AWS_ACCESS_KEY_ID: "${{ secrets.AWS_ACCESS_KEY_ID }}"
-  # AWS_SECRET_ACCESS_KEY: "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
-
 jobs:
 
 # =====================================================
-# SMALL TESTS 
+# SMALL TESTS
 # =====================================================
   small_tests:
     name: small_tests on OTP ${{ matrix.otp }}
@@ -70,7 +65,7 @@ jobs:
 
 
 # =====================================================
-# BIG TESTS (NON-BLOCKING )
+# BIG TESTS (NON-BLOCKING)
 # =====================================================
   big_tests:
     name: ${{ matrix.preset }} on OTP ${{ matrix.otp }}
@@ -83,7 +78,6 @@ jobs:
         preset:
           - internal_mnesia
           - pgsql_mnesia
-          - mysql_redis
           - ldap_mnesia
           - elasticsearch_and_cassandra_mnesia
         otp: [ '28.0.2' ]
@@ -125,7 +119,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [ pgsql_mnesia, mysql_redis ]
+        preset: [ pgsql_mnesia ]
         otp: [ '28.0.2' ]
         test-spec: [ "dynamic_domains.spec" ]
         include:
@@ -163,7 +157,6 @@ jobs:
         preset:
           - internal_mnesia
           - pgsql_mnesia
-          - mysql_redis
           - ldap_mnesia
           - elasticsearch_and_cassandra_mnesia
 
@@ -247,6 +240,7 @@ jobs:
   docker_image:
     name: docker image build
     runs-on: ubuntu-22.04
+    needs: [ small_tests, dialyzer, xref, edoc ]
     permissions:
       contents: read
       packages: write
@@ -269,8 +263,7 @@ jobs:
           echo "sha_tag=${IMAGE}:sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "run_tag=${IMAGE}:run-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "branch_tag=${IMAGE}:${BRANCH_TAG}" >> "$GITHUB_OUTPUT"
-          # push :latest only when building the main branch
-          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+          if [[ "${GITHUB_REF_NAME}" == "master" ]]; then
             echo "latest_tag=${IMAGE}:latest" >> "$GITHUB_OUTPUT"
           else
             echo "latest_tag=" >> "$GITHUB_OUTPUT"
@@ -327,3 +320,173 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: tools/test.sh -p pkg
+
+
+# =====================================================
+# AUTO DEPLOY
+# =====================================================
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-22.04
+    needs: docker_image
+    if: github.ref_name == 'CI'
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          SHORT_SHA: ${{ github.sha }}
+          DEPLOY_REF: ${{ github.ref_name }}
+          DB_HOST: ${{ secrets.MIM_DB_HOST }}
+          DB_PORT: ${{ secrets.MIM_DB_PORT }}
+          DB_NAME: ${{ secrets.MIM_DB_NAME }}
+          DB_USER: ${{ secrets.MIM_DB_USER }}
+          DB_PASSWORD: ${{ secrets.MIM_DB_PASSWORD }}
+          XMPP_HOST: ${{ secrets.MIM_XMPP_HOST }}
+          JWT_PUBLIC_KEY: ${{ secrets.MIM_JWT_PUBLIC_KEY }}
+          AI_BOT_API_KEY: ${{ secrets.MIM_AI_BOT_API_KEY }}
+          TLS_CERT_PEM: ${{ secrets.MIM_TLS_CERT_PEM }}
+          TLS_KEY_PEM: ${{ secrets.MIM_TLS_KEY_PEM }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,XMPP_HOST,JWT_PUBLIC_KEY,AI_BOT_API_KEY,TLS_CERT_PEM,TLS_KEY_PEM
+          script: |
+            set -euo pipefail
+
+            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+            cd /opt/MongooseIM99
+
+            git fetch origin "${DEPLOY_REF}"
+            git checkout "${DEPLOY_REF}" || git checkout -b "${DEPLOY_REF}" "origin/${DEPLOY_REF}"
+            git reset --hard "origin/${DEPLOY_REF}"
+
+            SHORT_SHA="${SHORT_SHA:0:7}"
+            MIM_NS="mim"
+            APP_DEPLOY="mim-mongooseim"
+            PG_DEPLOY="mim-mongooseim-postgresql"
+            REDIS_DEPLOY="mim-mongooseim-redis"
+
+            # ✅ Validate all required secrets are present before doing anything
+            MISSING=""
+            [[ -z "$DB_HOST" ]]        && MISSING="$MISSING DB_HOST"
+            [[ -z "$DB_PASSWORD" ]]    && MISSING="$MISSING DB_PASSWORD"
+            [[ -z "$JWT_PUBLIC_KEY" ]] && MISSING="$MISSING JWT_PUBLIC_KEY"
+            [[ -z "$AI_BOT_API_KEY" ]] && MISSING="$MISSING AI_BOT_API_KEY"
+            [[ -z "$XMPP_HOST" ]]      && MISSING="$MISSING XMPP_HOST"
+            [[ -z "$TLS_CERT_PEM" ]]   && MISSING="$MISSING TLS_CERT_PEM"
+            [[ -z "$TLS_KEY_PEM" ]]    && MISSING="$MISSING TLS_KEY_PEM"
+            if [[ -n "$MISSING" ]]; then
+              echo "❌ Missing required secrets:$MISSING"
+              echo "   Set these in GitHub → Settings → Secrets and variables → Actions"
+              exit 1
+            fi
+            echo "✅ All required secrets present"
+
+            get_generation() {
+              kubectl get deployment "$1" -n "$MIM_NS" \
+                -o jsonpath='{.metadata.generation}' 2>/dev/null || echo "absent"
+            }
+
+            PG_GEN_BEFORE="$(get_generation "$PG_DEPLOY")"
+            REDIS_GEN_BEFORE="$(get_generation "$REDIS_DEPLOY")"
+
+            # ✅ Inject all secrets as env vars on the MongooseIM deployment
+            echo "🔐 Injecting secrets as pod environment variables..."
+            kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
+              MIM_DB_HOST="${DB_HOST}" \
+              MIM_DB_PORT="${DB_PORT:-5432}" \
+              MIM_DB_NAME="${DB_NAME}" \
+              MIM_DB_USER="${DB_USER}" \
+              MIM_DB_PASSWORD="${DB_PASSWORD}" \
+              MIM_XMPP_HOST="${XMPP_HOST}" \
+              MIM_JWT_PUBLIC_KEY="${JWT_PUBLIC_KEY}" \
+              MIM_AI_BOT_API_KEY="${AI_BOT_API_KEY}" \
+              MIM_TLS_CERT_PEM="${TLS_CERT_PEM}" \
+              MIM_TLS_KEY_PEM="${TLS_KEY_PEM}"
+            echo "✅ Secrets injected as env vars"
+
+            # ✅ Deploy new image via Helm
+            echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
+            helm upgrade --install mim ./helm/mongooseim \
+             --namespace "$MIM_NS" \
+             -f helm/mongooseim/values.yaml \
+             --set image.repository="ghcr.io/jaspreet-android/wingtrill-mongooseim" \
+             --set image.tag="sha-${SHORT_SHA}" \
+             --set image.pullPolicy="Always"
+             --set postgresql.enabled=false \
+             --set rabbitmq.enabled=false \
+             --set redis.enabled=false
+            # Force restart so new deployment.yaml startup script runs in pods
+            echo "🔄 Restarting pods to apply new startup script..."
+            kubectl rollout restart deployment/${APP_DEPLOY} -n "$MIM_NS"
+
+            echo "⏳ Waiting for rollout to complete..."
+            if ! kubectl rollout status deployment/${APP_DEPLOY} -n "$MIM_NS" --timeout=300s; then
+              echo "❌ FAILED: rollout timed out"
+              kubectl get pods -n "$MIM_NS" -o wide || true
+              exit 1
+            fi
+            echo "✅ Rollout complete"
+
+            # ✅ Verify PostgreSQL and Redis deployments were NOT changed
+            PG_GEN_AFTER="$(get_generation "$PG_DEPLOY")"
+            REDIS_GEN_AFTER="$(get_generation "$REDIS_DEPLOY")"
+
+            if [[ "$PG_GEN_BEFORE" != "$PG_GEN_AFTER" ]]; then
+              echo "❌ PostgreSQL deployment changed unexpectedly! (${PG_GEN_BEFORE} -> ${PG_GEN_AFTER})"
+              exit 1
+            fi
+
+            if [[ "$REDIS_GEN_BEFORE" != "$REDIS_GEN_AFTER" ]]; then
+              echo "❌ Redis deployment changed unexpectedly! (${REDIS_GEN_BEFORE} -> ${REDIS_GEN_AFTER})"
+              exit 1
+            fi
+
+            echo "✅ PostgreSQL and Redis deployments unchanged"
+            echo ""
+            echo "✅ Deployment complete!"
+            echo ""
+            echo "📦 Running pods:"
+            kubectl get pods -n "$MIM_NS"
+
+# =====================================================
+# MONITORING DEPLOY
+# =====================================================
+  deploy_monitoring:
+    name: Deploy monitoring stack
+    runs-on: ubuntu-22.04
+    needs: docker_image
+    if: github.ref_name == 'CI'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if monitoring changed
+        id: check
+        run: |
+          if git diff HEAD~1 HEAD -- monitoring-values.yaml | grep -q .; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy monitoring via SSH
+        if: steps.check.outputs.changed == 'true'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+            cd /opt/MongooseIM99
+            helm repo add grafana https://grafana.github.io/helm-charts || true
+            helm repo update
+            helm upgrade --install loki grafana/loki-stack \
+              --namespace monitoring \
+              --create-namespace \
+              -f monitoring-values.yaml

@@ -31,6 +31,7 @@
     host = "_"
     path = "/ws-xmpp"
 
+
 [[listen.http]]
   port = {{{https_port}}}
   transport.num_acceptors = 10
@@ -99,7 +100,7 @@
   port = {{{c2s_port}}}
   access = "c2s"
   shaper = "normal"
-  max_stanza_size = 65536
+  max_stanza_size = 10485760
   {{#tls_config}}
   {{{tls_config}}}
   {{/tls_config}}
@@ -154,19 +155,29 @@
 {{{outgoing_pools}}}
 {{/outgoing_pools}}
 {{^outgoing_pools}}
+[outgoing_pools.http.ai_bot]
+  scope = "global"
+  workers = 5
+
+[outgoing_pools.http.ai_bot.connection]
+  host = "https://api.openai.com"
+  path_prefix = "/v1"
+  request_timeout = 30000
+  tls.verify_mode = "none"
+
+
 [outgoing_pools.rdbms.default]
   scope = "global"
   workers = 5
 
   [outgoing_pools.rdbms.default.connection]
-    driver = "mysql"
+    driver = "pgsql"
+    port = 5433
     host = "localhost"
     database = "mongooseim"
     username = "mongooseim"
-    password = "mongooseim"
+    password = "mongooseim_secret"
     tls.required = false
-    tls.cacertfile = "priv/ssl/cacert.pem"
-    tls.server_name_indication.enabled = false
 {{/outgoing_pools}}
 
 [services.service_bosh]
@@ -181,7 +192,17 @@
 {{/service_domain_db}}
 [services.service_mongoose_system_metrics]
 
+[modules.mod_sasl2]
+
+[modules.mod_bind2]
+
+[modules.mod_fast_auth_token]
+  validity_period.access = {value = 3, unit = "days"}
+  validity_period.rotate_before_expire = {value = 6, unit = "hours"}
+
 [modules.mod_adhoc]
+
+# [services.service_traffic]
 
 {{#mod_amp}}
 [modules.mod_amp]
@@ -198,6 +219,43 @@
 [modules.mod_last]
 {{{mod_last}}}
 {{/mod_last}}
+{{#mod_last_seen}}
+[modules.mod_last_seen]
+{{{mod_last_seen}}}
+{{/mod_last_seen}}
+{{#mod_user_privacy}}
+[modules.mod_user_privacy]
+{{{mod_user_privacy}}}
+{{/mod_user_privacy}}
+{{#mod_broadcast}}
+[modules.mod_broadcast]
+{{{mod_broadcast}}}
+{{/mod_broadcast}}
+{{#mod_channel}}
+[modules.mod_channel]
+{{{mod_channel}}}
+{{/mod_channel}}
+[modules.mod_offline_stub]
+
+[modules.mod_mam]
+  backend = "rdbms"
+
+  [modules.mod_mam.pm]
+    archive_chat_markers = true
+
+  [modules.mod_mam.muc]
+    host = "muclight.@HOST@"
+
+[modules.mod_inbox]
+  backend = "rdbms"
+  reset_markers = ["displayed"]
+
+[modules.mod_ping]
+  send_pings = true
+  ping_interval = 20
+  ping_req_timeout = 5
+  timeout_action = "kill"
+
 [modules.mod_stream_management]
   {{#stream_management_backend}}
   backend = "{{{stream_management_backend}}}"
@@ -240,6 +298,70 @@
 {{/mod_vcard}}
 
 [modules.mod_carboncopy]
+
+[modules.mod_contact_sync]
+  backend="rdbms"
+  add_to_roster = true
+
+[modules.mod_email_sync]
+  backend="rdbms"
+  add_to_roster = true
+
+[modules.mod_muc_light]
+  backend = "rdbms"
+
+[modules.mod_jingle]
+
+[modules.mod_ai_bot]
+  provider = "openai"
+  pool_tag = "ai_bot"
+  api_key = "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"
+  bot_username = "assistant"
+  model = "gpt-4o"
+  max_tokens = 8192
+  system_prompt = "You are a DevOps expert. Help with infrastructure, CI/CD, and deployment."
+
+[modules.mod_ai_bot_call]
+  pool_tag = "ai_bot"
+  api_key = "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"
+  bot_username = "assistant"
+  model = "gpt-4o-realtime-preview"
+  voice = "alloy"
+  temperature = 0.8
+  max_response_output_tokens = 4096
+  call_prompt = "You are a professional customer service agent. Answer questions clearly and concisely. Keep responses brief (2-3 sentences) since this is a real-time voice call. Use natural conversational language."
+
+[modules.mod_caps]
+
+[modules.mod_pubsub]
+  ignore_pep_from_offline = true
+  backend = "rdbms"
+  last_item_cache = "rdbms"
+  plugins = ["flat", "pep", "push"]
+  default_node_config = {access_model = "open"}
+  iqdisc.type = "queues"
+  iqdisc.workers = 50
+  wpool.workers = 10
+
+  [[modules.mod_pubsub.pep_mapping]]
+    namespace = "http://jabber.org/protocol/nick"
+    node = "nick"
+
+  [[modules.mod_pubsub.pep_mapping]]
+    namespace = "urn:xmpp:avatar:metadata"
+    node = "avatar_metadata"
+
+[modules.mod_http_upload]
+  host = "upload.@HOST@"
+  backend = "s3"
+  expiration_time = 120
+  max_file_size = 80428800
+
+[modules.mod_http_upload.s3]
+  bucket_url = "https://upload-files-opa.s3.ca-central-1.amazonaws.com"
+  region = "ca-central-1"
+  access_key_id = "AKIA5WWR24YGL3CXLNOI"
+  secret_access_key = "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"
 
 {{{instrumentation}}}
 
@@ -290,6 +412,10 @@
   ]
 
   register = [
+    {acl = "all", value = "allow"}
+  ]
+
+  pubsub_createnode = [
     {acl = "all", value = "allow"}
   ]
 
