@@ -241,6 +241,19 @@ data:
         groupchat_msg_exchange.sent_topic = "groupchat_msg_sent"
         groupchat_msg_exchange.recv_topic = "groupchat_msg_recv"
 
+    # Publishes Jingle call lifecycle events to RabbitMQ. Consumed by
+    # wingtrill-notifier which sends iOS VoIP pushes and Android
+    # high-priority FCM data messages for calls.
+    [modules.mod_jingle_event_pusher]
+
+      [modules.mod_jingle_event_pusher.exchange]
+        name = "call_events"
+        type = "topic"
+        # wingtrill-notifier declares this exchange as durable; RabbitMQ
+        # rejects redeclaring an existing exchange with a different
+        # durability (PRECONDITION_FAILED), so this must match.
+        durable = true
+
     [modules.mod_http_upload]
       host = "upload.xmpp-mongo.wingtrill.com"
       backend = "s3"

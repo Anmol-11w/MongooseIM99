@@ -178,6 +178,20 @@
     username = "mongooseim"
     password = "mongooseim_secret"
     tls.required = false
+    tls.verify_mode = "none"
+
+[outgoing_pools.rabbit.event_pusher]
+  scope = "global"
+  workers = 5
+
+  [outgoing_pools.rabbit.event_pusher.connection]
+    host = "localhost"
+    port = 5673
+    username = "mongooseim"
+    password = "secret"
+    virtual_host = "mongooseim"
+    confirms_enabled = true
+
 {{/outgoing_pools}}
 
 [services.service_bosh]
@@ -201,6 +215,21 @@
   validity_period.rotate_before_expire = {value = 6, unit = "hours"}
 
 [modules.mod_adhoc]
+
+[modules.mod_event_pusher.rabbit]
+  # durable = true on all three: wingtrill-notifier declares its consumed
+  # exchange as durable, and RabbitMQ rejects redeclaring an existing
+  # exchange with a different durability (PRECONDITION_FAILED).
+  presence_exchange.name = "presence"
+  presence_exchange.durable = true
+  chat_msg_exchange.name = "chat_msg"
+  chat_msg_exchange.durable = true
+  chat_msg_exchange.sent_topic = "chat_msg_sent"
+  chat_msg_exchange.recv_topic = "chat_msg_recv"
+  groupchat_msg_exchange.name = "groupchat_msg"
+  groupchat_msg_exchange.durable = true
+  groupchat_msg_exchange.sent_topic = "groupchat_msg_sent"
+  groupchat_msg_exchange.recv_topic = "groupchat_msg_recv"
 
 # [services.service_traffic]
 
@@ -249,6 +278,8 @@
 [modules.mod_inbox]
   backend = "rdbms"
   reset_markers = ["displayed"]
+
+[modules.mod_inbox_mute_pusher]
 
 [modules.mod_ping]
   send_pings = true
@@ -311,6 +342,16 @@
   backend = "rdbms"
 
 [modules.mod_jingle]
+
+[modules.mod_jingle_event_pusher]
+
+  [modules.mod_jingle_event_pusher.exchange]
+    name = "call_events"
+    type = "topic"
+    # wingtrill-notifier declares this exchange as durable; RabbitMQ
+    # rejects redeclaring an existing exchange with a different
+    # durability (PRECONDITION_FAILED), so this must match.
+    durable = true
 
 [modules.mod_ai_bot]
   provider = "openai"

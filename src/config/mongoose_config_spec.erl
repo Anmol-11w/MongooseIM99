@@ -774,7 +774,9 @@ configurable_modules() ->
      mod_ai_bot_call,
      mod_broadcast,
      mod_channel,
-     mod_jingle].
+     mod_jingle,
+     mod_jingle_event_pusher,
+     mod_inbox_mute_pusher].
 
 %% path: (host_config[].)modules.*.iqdisc
 iqdisc() ->

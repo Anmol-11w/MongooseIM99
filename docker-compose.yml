@@ -5,6 +5,9 @@
 #   docker compose up --build
 
 services:
+  # Shared with wingtrill-notifier: it stores its own "wingtrill_notifier"
+  # database here (see docker/postgres/init.sh) instead of running its own
+  # Postgres container. Keep host ports in sync with that repo's .env.
   postgres:
     image: postgres:16
     user: root
@@ -32,7 +35,7 @@ services:
       - ./tools/ssl/mongooseim/key.pem:/tmp/ssl/key.pem:ro
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "psql -U mongooseim -d mongooseim -c 'SELECT 1' > /dev/null 2>&1 || exit 1"]
       interval: 10s
@@ -40,6 +43,9 @@ services:
       retries: 10
       start_period: 30s
 
+  # Shared with wingtrill-notifier: mod_event_pusher_rabbit (once enabled)
+  # publishes to this vhost, and the notifier consumes from it — so it
+  # connects here instead of running its own RabbitMQ container.
   rabbitmq:
     image: rabbitmq:3.13-management
     hostname: rabbitmq
@@ -50,8 +56,8 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     ports:
-      - "5672:5672"      # AMQP
-      - "15672:15672"    # management UI
+      - "5673:5672"      # AMQP
+      - "15673:15672"    # management UI
     healthcheck:
       test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
       interval: 10s

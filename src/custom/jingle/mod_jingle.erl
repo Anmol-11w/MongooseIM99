@@ -66,11 +66,11 @@ user_send_iq(Acc, _Params, _Extra) ->
     case exml_query:subelement_with_ns(Packet, ?NS_JINGLE) of
         undefined ->
             {ok, Acc};
-        _JingleEl ->
+        JingleEl ->
             case To#jid.lresource of
                 <<>> ->
                     %% Bare JID — find online resources and forward
-                    relay_to_resources(Acc, From, To, Packet);
+                    relay_to_resources(Acc, From, To, Packet, JingleEl);
                 _ ->
                     %% Full JID — let normal routing handle it
                     {ok, Acc}
@@ -81,14 +81,13 @@ user_send_iq(Acc, _Params, _Extra) ->
 %% Internal: forward the Jingle IQ to the recipient's online resources
 %%--------------------------------------------------------------------
 
--spec relay_to_resources(mongoose_acc:t(), jid:jid(), jid:jid(), exml:element()) ->
+-spec relay_to_resources(mongoose_acc:t(), jid:jid(), jid:jid(), exml:element(), exml:element()) ->
     mongoose_c2s_hooks:result().
-relay_to_resources(Acc, From, To, Packet) ->
+relay_to_resources(Acc, From, To, Packet, JingleEl) ->
     Resources = ejabberd_sm:get_user_resources(To),
     case Resources of
         [] ->
-            %% User is offline — let normal error handling reply
-            {ok, Acc};
+            handle_offline(Acc, JingleEl);
         [Resource | _] ->
             %% Forward to the first available resource.
             %% Do NOT send a fake ack — the callee's real response
@@ -97,6 +96,28 @@ relay_to_resources(Acc, From, To, Packet) ->
             NewPacket = set_attr(<<"to">>, jid:to_binary(FullTo), Packet),
             route(From, FullTo, NewPacket),
             {stop, Acc}
+    end.
+
+%% A `session-initiate' to a fully offline callee must NOT bounce an
+%% immediate IQ error back to the caller: the caller's client treats any
+%% Jingle IQ error as "call failed" and ends the call right away, well
+%% before a VoIP/FCM push (mod_jingle_event_pusher, which runs at a lower
+%% hook priority than this module and has already fired regardless of
+%% online status) could ever wake the callee's device. Silently drop it
+%% instead — the caller's own client-side call-setup timeout is the "no
+%% answer" signal, giving the push time to land; if the callee reconnects
+%% within that window, the caller's presence listener resends the same
+%% offer to their now-known resource.
+%%
+%% Every other action (`session-accept'/`session-terminate'/
+%% `transport-info'/`session-info') implies a call already in progress
+%% addressed to a specific resource, so a genuine mid-call disconnect
+%% there should still surface as an error, unchanged.
+-spec handle_offline(mongoose_acc:t(), exml:element()) -> mongoose_c2s_hooks:result().
+handle_offline(Acc, JingleEl) ->
+    case exml_query:attr(JingleEl, <<"action">>) of
+        <<"session-initiate">> -> {stop, Acc};
+        _ -> {ok, Acc}
     end.
 
 -spec route(jid:jid(), jid:jid(), exml:element()) -> mongoose_acc:t().
