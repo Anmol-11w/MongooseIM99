@@ -20,7 +20,7 @@ This guide explains how GitHub Actions CI/CD workflows operate, how to access Ku
 * **Trigger**: Push to `main` branch or Pull Requests.
 * **Actions**:
   1. Runs Erlang test suites.
-  2. Builds Docker image tagged with git SHA (`ghcr.io/Pargat-tech/Wingtrill-mongooseim:sha-<shortsha>`).
+  2. Builds Docker image tagged with git SHA (`ghcr.io/pargat-tech/wingtrill-mongooseim:sha-<shortsha>`).
   3. Pushes image to GitHub Container Registry.
   4. SSHs into the deployment server, injects environment variables/secrets (`MIM_*`), upgrades Helm release (`mim`), and restarts pods.
 
