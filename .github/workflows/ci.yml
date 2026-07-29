@@ -160,9 +160,13 @@ jobs:
             REDIS_GEN_BEFORE="$(get_generation "$REDIS_DEPLOY")"
             RMQ_GEN_BEFORE="$(get_generation "$RMQ_DEPLOY")"
 
-            # ✅ Pre-clean unmanaged RabbitMQ deployment to prevent Helm selector conflicts
-            echo "🧹 Ensuring clean state for RabbitMQ deployment..."
+            # ✅ Pre-clean unmanaged deployments to prevent Helm selector/ownership conflicts
+            echo "🧹 Ensuring clean state for MongooseIM and RabbitMQ deployments..."
             kubectl delete deployment "${RMQ_DEPLOY}" -n "$MIM_NS" --ignore-not-found=true
+            if ! kubectl get deployment "${APP_DEPLOY}" -n "$MIM_NS" -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}' 2>/dev/null | grep -q 'mim'; then
+              echo "🧹 Removing unmanaged deployment ${APP_DEPLOY} to allow Helm ownership..."
+              kubectl delete deployment "${APP_DEPLOY}" -n "$MIM_NS" --ignore-not-found=true
+            fi
 
             # ✅ Deploy image via Helm first so deployment exists
             echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
