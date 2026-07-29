@@ -1,11 +1,4 @@
-{{- $enabled := false -}}
-{{- if and .Values.rabbitmq .Values.rabbitmq.persistence -}}
-  {{- $enabled = .Values.rabbitmq.persistence.enabled -}}
-{{- else if .Values.rabbitmqPersistence -}}
-  {{- $enabled = .Values.rabbitmqPersistence.enabled -}}
-{{- end -}}
-
-{{- if $enabled }}
+{{- if .Values.rabbitmqPersistence.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -18,61 +11,8 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: {{ default "1Gi" (dig "rabbitmq" "persistence" "size" (dig "rabbitmqPersistence" "size" "1Gi" .Values) .Values) }}
-  {{- if and .Values.rabbitmq .Values.rabbitmq.persistence .Values.rabbitmq.persistence.storageClass }}
-  storageClassName: {{ .Values.rabbitmq.persistence.storageClass }}
+      storage: {{ .Values.rabbitmqPersistence.size }}
+  {{- if .Values.rabbitmqPersistence.storageClass }}
+  storageClassName: {{ .Values.rabbitmqPersistence.storageClass }}
   {{- end }}
-{{- end }}
-{{- if .Values.rabbitmq.enabled }}
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: {{ include "mongooseim.fullname" . }}-rabbitmq
-  labels:
-    {{- include "mongooseim.labels" . | nindent 4 }}
-    app.kubernetes.io/component: rabbitmq
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      {{- include "mongooseim.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: rabbitmq
-  template:
-    metadata:
-      labels:
-        {{- include "mongooseim.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: rabbitmq
-    spec:
-      containers:
-        - name: rabbitmq
-          image: {{ .Values.rabbitmq.image }}
-          imagePullPolicy: {{ .Values.rabbitmq.imagePullPolicy }}
-          env:
-            - name: RABBITMQ_DEFAULT_USER
-              value: {{ .Values.rabbitmq.username | quote }}
-            - name: RABBITMQ_DEFAULT_PASS
-              value: {{ .Values.rabbitmq.password | quote }}
-            - name: RABBITMQ_DEFAULT_VHOST
-              value: {{ .Values.rabbitmq.vhost | quote }}
-          ports:
-            - name: amqp
-              containerPort: {{ .Values.rabbitmqBackend.port }}
-              protocol: TCP
-            - name: management
-              containerPort: 15672
-              protocol: TCP
-          livenessProbe:
-            tcpSocket:
-              port: amqp
-            initialDelaySeconds: 20
-            periodSeconds: 15
-          readinessProbe:
-            tcpSocket:
-              port: amqp
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          {{- with .Values.rabbitmq.resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
 {{- end }}
