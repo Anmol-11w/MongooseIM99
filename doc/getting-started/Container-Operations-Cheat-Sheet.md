@@ -141,8 +141,8 @@ Common places:
 
 ```bash
 TAG=sha-$(git rev-parse --short HEAD)
-docker build -t ghcr.io/pargat-tech/wingtrill-mongooseim:$TAG .
-docker push ghcr.io/pargat-tech/wingtrill-mongooseim:$TAG
+docker build -t ghcr.io/anmol-11w/mongooseim99:$TAG .
+docker push ghcr.io/anmol-11w/mongooseim99:$TAG
 ```
 
 ### 5.3 Upgrade Helm release
@@ -151,7 +151,7 @@ docker push ghcr.io/pargat-tech/wingtrill-mongooseim:$TAG
 helm upgrade --install mim ./helm/mongooseim \
   --namespace mim \
   --reset-values \
-  --set image.repository="ghcr.io/pargat-tech/wingtrill-mongooseim" \
+  --set image.repository="ghcr.io/anmol-11w/mongooseim99" \
   --set image.tag="$TAG" \
   --set image.pullPolicy="Always"
 ```
@@ -240,5 +240,5 @@ kubectl exec -i -n mim "$POD" -c mongooseim -- mongooseimctl account countUsers 
 
 # Helm upgrade to new image
 ```bash
-helm upgrade --install mim ./helm/mongooseim --namespace mim --set image.repository=ghcr.io/pargat-tech/wingtrill-mongooseim --set image.tag=sha-<shortsha> --set image.pullPolicy=Always
+helm upgrade --install mim ./helm/mongooseim --namespace mim --set image.repository=ghcr.io/anmol-11w/mongooseim99 --set image.tag=sha-<shortsha> --set image.pullPolicy=Always
 ```

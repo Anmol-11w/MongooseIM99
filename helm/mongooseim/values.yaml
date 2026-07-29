@@ -8,7 +8,7 @@ erlang:
   distPortMax: 52200
 
 image:
-  repository: ghcr.io/pargat-tech/wingtrill-mongooseim
+  repository: ghcr.io/anmol-11w/mongooseim99
   tag: "latest"
   pullPolicy: Always
 

@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: mongooseim
-          image: ghcr.io/pargat-tech/wingtrill-mongooseim:latest
+          image: ghcr.io/anmol-11w/mongooseim99:latest
           imagePullPolicy: Always
           ports:
             - name: xmpp-client
