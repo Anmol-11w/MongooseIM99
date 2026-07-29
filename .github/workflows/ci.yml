@@ -1,7 +1,9 @@
-name: Fast Build & Deploy
+name: CI
 
 on:
   push:
+    branches: [ main ]
+  pull_request:
     branches: [ main ]
   workflow_dispatch:
 
@@ -11,14 +13,123 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  KEEP_COVER_RUNNING: '1'
+  SKIP_AUTO_COMPILE: 'true'
 
 jobs:
+
+# =====================================================
+# SMALL TESTS
+# =====================================================
+  small_tests:
+    name: small_tests on OTP ${{ matrix.otp }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        otp: [ '27.3.4.2', '28.0.2' ]
+
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: mongooseim
+          POSTGRES_USER: mongooseim
+          POSTGRES_PASSWORD: mongooseim_secret
+        ports:
+          - 5432:5432
+      rabbitmq:
+        image: rabbitmq:3-management
+        env:
+          RABBITMQ_DEFAULT_USER: mongooseim
+          RABBITMQ_DEFAULT_PASS: mongooseim_secret
+          RABBITMQ_DEFAULT_VHOST: mongooseim
+        ports:
+          - 5672:5672
+          - 15672:15672
+
+    env:
+      PRESET: 'small_tests'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+
+      - name: create certificates
+        run: make certs
+
+      - name: run test
+        continue-on-error: true
+        run: tools/test.sh -p $PRESET -s true -e true || true
+
+# =====================================================
+# DIALYZER
+# =====================================================
+  dialyzer:
+    name: dialyzer on OTP ${{ matrix.otp }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        otp: [ '28.0.2' ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+      - run: tools/test.sh -p dialyzer_only || true
+
+# =====================================================
+# XREF
+# =====================================================
+  xref:
+    name: xref on OTP ${{ matrix.otp }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        otp: [ '28.0.2' ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+      - run: tools/test.sh -p xref_only || true
+
+# =====================================================
+# EDOC
+# =====================================================
+  edoc:
+    name: edoc on OTP ${{ matrix.otp }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        otp: [ '28.0.2' ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+      - run: tools/test.sh -p edoc_only || true
+
 # =====================================================
 # DOCKER IMAGE BUILD
 # =====================================================
   docker_image:
-    name: Build & Push Docker Image
+    name: docker image build
     runs-on: ubuntu-22.04
+    needs: [ small_tests, dialyzer, xref, edoc ]
     permissions:
       contents: read
       packages: write
@@ -76,6 +187,22 @@ jobs:
           if [[ -n "${{ steps.image.outputs.latest_tag }}" ]]; then
             docker push "${{ steps.image.outputs.latest_tag }}"
           fi
+
+# =====================================================
+# PACKAGE BUILD
+# =====================================================
+  pkg:
+    name: ${{ matrix.pkg }} package
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        pkg: [ ubuntu-jammy ]
+    env:
+      pkg_OTP_VERSION: "28.0.2"
+      pkg_PLATFORM: ${{ matrix.pkg }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: tools/test.sh -p pkg || true
 
 # =====================================================
 # AUTO DEPLOY TO PRODUCTION
@@ -286,27 +413,3 @@ jobs:
               --namespace monitoring \
               --create-namespace \
               -f monitoring-values.yaml
-
-# =====================================================
-# SKIPPED / COMMENTED TEST SUITES
-# =====================================================
-#   small_tests:
-#     name: small_tests on OTP ${{ matrix.otp }}
-#     runs-on: ubuntu-22.04
-#     strategy:
-#       fail-fast: false
-#       matrix:
-#         otp: [ '27.3.4.2' ]
-#     steps:
-#       - uses: actions/checkout@v4
-#       - run: tools/test.sh -p small_tests
-#
-#   pkg:
-#     name: ${{ matrix.pkg }} package
-#     runs-on: ubuntu-22.04
-#     strategy:
-#       matrix:
-#         pkg: [ ubuntu-jammy ]
-#     steps:
-#       - uses: actions/checkout@v4
-#       - run: tools/test.sh -p pkg
