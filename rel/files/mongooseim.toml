@@ -185,7 +185,7 @@
   workers = 5
 
   [outgoing_pools.rabbit.event_pusher.connection]
-    host = "localhost"
+    host = "mim-mongooseim-rabbitmq"
     port = 5673
     username = "mongooseim"
     password = "secret"
