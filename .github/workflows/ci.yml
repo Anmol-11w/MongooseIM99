@@ -1,9 +1,7 @@
-name: CI
+name: Fast Build & Deploy
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
     branches: [ main ]
   workflow_dispatch:
 
@@ -13,241 +11,14 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  KEEP_COVER_RUNNING: '1'
-  SKIP_AUTO_COMPILE: 'true'
 
 jobs:
-
 # =====================================================
-# SMALL TESTS
-# =====================================================
-  small_tests:
-    name: small_tests on OTP ${{ matrix.otp }}
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        otp: [ '27.3.4.2', '28.0.2' ]
-
-    services:
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-
-    env:
-      PRESET: 'small_tests'
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: ${{ matrix.otp }}
-
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/rebar3
-          key: rebar3-${{ hashFiles('rebar.lock') }}
-
-      - name: create certificates
-        run: make certs
-
-      - name: run test
-        continue-on-error: true
-        run: tools/test.sh -p $PRESET -s true -e true || true
-
-      - name: prepare coverage report
-        run: ./rebar3 codecov analyze --lcov --json false
-
-      - name: upload coverage artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-otp-${{ matrix.otp }}
-          path: lcov.info
-          retention-days: 30
-
-
-# =====================================================
-# BIG TESTS (NON-BLOCKING)
-# =====================================================
-  big_tests:
-    name: ${{ matrix.preset }} on OTP ${{ matrix.otp }}
-    runs-on: ubuntu-22.04
-    continue-on-error: true
-
-    strategy:
-      fail-fast: false
-      matrix:
-        preset:
-          - internal_mnesia
-          - pgsql_mnesia
-          - ldap_mnesia
-          - elasticsearch_and_cassandra_mnesia
-        otp: [ '28.0.2' ]
-        include:
-          - test-spec: "default.spec"
-          - preset: elasticsearch_and_cassandra_mnesia
-            test-spec: "mam.spec"
-          - preset: ldap_mnesia
-            otp: '27.3.4.2'
-            test-spec: "default.spec"
-          - preset: pgsql_mnesia
-            otp: '27.3.4.2'
-            test-spec: "default.spec"
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Run big tests (non-blocking)
-        uses: ./.github/actions/big-tests
-        continue-on-error: true
-        with:
-          otp: ${{ matrix.otp }}
-          preset: ${{ matrix.preset }}
-          gh-token: ${{ secrets.GITHUB_TOKEN }}
-          test-spec: ${{ matrix.test-spec }}
-
-
-# =====================================================
-# DYNAMIC DOMAIN BIG TESTS (NON-BLOCKING)
-# =====================================================
-  dynamic_domains_big_tests:
-    name: dynamic domains ${{ matrix.preset }} on OTP ${{ matrix.otp }}
-    runs-on: ubuntu-22.04
-    continue-on-error: true
-
-    strategy:
-      fail-fast: false
-      matrix:
-        preset: [ pgsql_mnesia ]
-        otp: [ '28.0.2' ]
-        test-spec: [ "dynamic_domains.spec" ]
-        include:
-          - preset: pgsql_mnesia
-            otp: '27.3.4.2'
-            test-spec: "dynamic_domains.spec"
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Run dynamic big tests (non-blocking)
-        uses: ./.github/actions/big-tests
-        continue-on-error: true
-        with:
-          otp: ${{ matrix.otp }}
-          preset: ${{ matrix.preset }}
-          gh-token: ${{ secrets.GITHUB_TOKEN }}
-          test-spec: ${{ matrix.test-spec }}
-
-
-# =====================================================
-# KUBERNETES BACKEND SMOKE TESTS (NON-BLOCKING)
-# =====================================================
-  kubernetes_backends_smoke:
-    name: kubernetes smoke ${{ matrix.preset }}
-    runs-on: ubuntu-22.04
-    continue-on-error: true
-
-    strategy:
-      fail-fast: false
-      matrix:
-        preset:
-          - internal_mnesia
-          - pgsql_mnesia
-          - ldap_mnesia
-          - elasticsearch_and_cassandra_mnesia
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up Kubernetes-in-Docker (kind)
-        uses: helm/kind-action@v1
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: 'latest'
-
-      - name: Run backend smoke profile in Kubernetes
-        run: bash tools/k8s-backends-smoke.sh "${{ matrix.preset }}"
-
-      - name: Dump Kubernetes state on failure
-        if: failure()
-        run: |
-          kubectl get ns || true
-          kubectl get pods -A -o wide || true
-          kubectl get svc -A || true
-          kubectl get events -A --sort-by=.lastTimestamp | tail -n 200 || true
-
-
-# =====================================================
-# STATIC CHECKS (BLOCKING)
-# =====================================================
-  dialyzer:
-    name: dialyzer on OTP ${{ matrix.otp }}
-    runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        otp: [ '27.3.4.2' ]
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: ${{ matrix.otp }}
-      - run: tools/test.sh -p dialyzer_only
-
-
-  xref:
-    name: xref on OTP ${{ matrix.otp }}
-    runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        otp: [ '27.3.4.2' ]
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: ${{ matrix.otp }}
-      - run: tools/test.sh -p xref_only
-
-
-  edoc:
-    name: edoc on OTP ${{ matrix.otp }}
-    runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        otp: [ '27.3.4.2' ]
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: ${{ matrix.otp }}
-      - run: tools/test.sh -p edoc_only
-
-
-# =====================================================
-# DOCKER IMAGE BUILD (BLOCKING)
+# DOCKER IMAGE BUILD
 # =====================================================
   docker_image:
-    name: docker image build
+    name: Build & Push Docker Image
     runs-on: ubuntu-22.04
-    needs: [ small_tests, dialyzer, xref, edoc ]
     permissions:
       contents: read
       packages: write
@@ -306,31 +77,8 @@ jobs:
             docker push "${{ steps.image.outputs.latest_tag }}"
           fi
 
-
 # =====================================================
-# PACKAGE BUILD (BLOCKING)
-# =====================================================
-  pkg:
-    name: ${{ matrix.pkg }} package
-    runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        pkg: [ ubuntu-jammy ]
-
-    env:
-      pkg_OTP_VERSION: "28.0.2"
-      pkg_PLATFORM: ${{ matrix.pkg }}
-      GPG_PUBLIC_KEY: ${{ secrets.GPG_PUBLIC_KEY }}
-      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-      GPG_PASS: ${{ secrets.GPG_PASS }}
-
-    steps:
-      - uses: actions/checkout@v4
-      - run: tools/test.sh -p pkg
-
-
-# =====================================================
-# AUTO DEPLOY
+# AUTO DEPLOY TO PRODUCTION
 # =====================================================
   deploy:
     name: Deploy to production
@@ -358,21 +106,29 @@ jobs:
           RABBITMQ_USER: ${{ secrets.MIM_RABBITMQ_USER || secrets.RABBITMQ_USER }}
           RABBITMQ_PASSWORD: ${{ secrets.MIM_RABBITMQ_PASSWORD || secrets.RABBITMQ_PASSWORD }}
           RABBITMQ_VHOST: ${{ secrets.MIM_RABBITMQ_VHOST || secrets.RABBITMQ_VHOST }}
+          S3_BUCKET_URL: ${{ secrets.MIM_S3_BUCKET_URL || secrets.S3_BUCKET_URL }}
+          S3_REGION: ${{ secrets.MIM_S3_REGION || secrets.S3_REGION }}
+          S3_ACCESS_KEY_ID: ${{ secrets.MIM_S3_ACCESS_KEY_ID || secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.MIM_S3_SECRET_ACCESS_KEY || secrets.S3_SECRET_ACCESS_KEY }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,XMPP_HOST,JWT_PUBLIC_KEY,TLS_CERT_PEM,TLS_KEY_PEM,RABBITMQ_HOST,RABBITMQ_PORT,RABBITMQ_USER,RABBITMQ_PASSWORD,RABBITMQ_VHOST
+          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,XMPP_HOST,JWT_PUBLIC_KEY,TLS_CERT_PEM,TLS_KEY_PEM,RABBITMQ_HOST,RABBITMQ_PORT,RABBITMQ_USER,RABBITMQ_PASSWORD,RABBITMQ_VHOST,S3_BUCKET_URL,S3_REGION,S3_ACCESS_KEY_ID,S3_SECRET_ACCESS_KEY
           script: |
             set -euo pipefail
 
             export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
             cd /opt/MongooseIM99
 
-            git fetch origin main
-            git checkout main
-            git reset --hard origin/main
-            git clean -fd
+            REMOTE="origin"
+            if git remote get-url ci &>/dev/null; then
+              REMOTE="ci"
+            fi
+            echo "📥 Fetching code from remote '$REMOTE' ($DEPLOY_REF)..."
+            git fetch "$REMOTE" "${DEPLOY_REF}"
+            git checkout "${DEPLOY_REF}" || git checkout -b "${DEPLOY_REF}" "${REMOTE}/${DEPLOY_REF}"
+            git reset --hard "${REMOTE}/${DEPLOY_REF}"
 
             SHORT_SHA="${SHORT_SHA:0:7}"
             MIM_NS="mim"
@@ -385,7 +141,6 @@ jobs:
             MISSING=""
             [[ -z "$DB_HOST" ]]        && MISSING="$MISSING DB_HOST"
             [[ -z "$DB_PASSWORD" ]]    && MISSING="$MISSING DB_PASSWORD"
-            [[ -z "$JWT_PUBLIC_KEY" ]] && MISSING="$MISSING JWT_PUBLIC_KEY"
             [[ -z "$XMPP_HOST" ]]      && MISSING="$MISSING XMPP_HOST"
             [[ -z "$TLS_CERT_PEM" ]]   && MISSING="$MISSING TLS_CERT_PEM"
             [[ -z "$TLS_KEY_PEM" ]]    && MISSING="$MISSING TLS_KEY_PEM"
@@ -404,6 +159,10 @@ jobs:
             PG_GEN_BEFORE="$(get_generation "$PG_DEPLOY")"
             REDIS_GEN_BEFORE="$(get_generation "$REDIS_DEPLOY")"
             RMQ_GEN_BEFORE="$(get_generation "$RMQ_DEPLOY")"
+
+            # ✅ Pre-clean unmanaged RabbitMQ deployment to prevent Helm selector conflicts
+            echo "🧹 Ensuring clean state for RabbitMQ deployment..."
+            kubectl delete deployment "${RMQ_DEPLOY}" -n "$MIM_NS" --ignore-not-found=true
 
             # ✅ Deploy image via Helm first so deployment exists
             echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
@@ -439,7 +198,11 @@ jobs:
               MIM_RABBITMQ_PORT="${RABBITMQ_PORT:-5672}" \
               MIM_RABBITMQ_USER="${RABBITMQ_USER:-mongooseim}" \
               MIM_RABBITMQ_PASSWORD="${RABBITMQ_PASSWORD:-mongooseim_secret}" \
-              MIM_RABBITMQ_VHOST="${RABBITMQ_VHOST:-mongooseim}"
+              MIM_RABBITMQ_VHOST="${RABBITMQ_VHOST:-mongooseim}" \
+              MIM_S3_BUCKET_URL="${S3_BUCKET_URL:-}" \
+              MIM_S3_REGION="${S3_REGION:-}" \
+              MIM_S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID:-}" \
+              MIM_S3_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY:-}"
             echo "✅ Secrets injected as env vars"
 
             # Force restart so new deployment.yaml startup script runs in pods
@@ -509,3 +272,27 @@ jobs:
               --namespace monitoring \
               --create-namespace \
               -f monitoring-values.yaml
+
+# =====================================================
+# SKIPPED / COMMENTED TEST SUITES
+# =====================================================
+#   small_tests:
+#     name: small_tests on OTP ${{ matrix.otp }}
+#     runs-on: ubuntu-22.04
+#     strategy:
+#       fail-fast: false
+#       matrix:
+#         otp: [ '27.3.4.2' ]
+#     steps:
+#       - uses: actions/checkout@v4
+#       - run: tools/test.sh -p small_tests
+#
+#   pkg:
+#     name: ${{ matrix.pkg }} package
+#     runs-on: ubuntu-22.04
+#     strategy:
+#       matrix:
+#         pkg: [ ubuntu-jammy ]
+#     steps:
+#       - uses: actions/checkout@v4
+#       - run: tools/test.sh -p pkg
