@@ -275,11 +275,7 @@ spec:
                 mkdir -p "$(dirname "$JWT_KEY_FILE")"
                 openssl genrsa 2048 2>/dev/null | openssl rsa -pubout 2>/dev/null > "$JWT_KEY_FILE" || true
                 if [[ ! -s "$JWT_KEY_FILE" ]]; then
-                  cat << 'EOF' > "$JWT_KEY_FILE"
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Z5Y7p3N2
------END PUBLIC KEY-----
-EOF
+                  printf '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Z5Y7p3N2\n-----END PUBLIC KEY-----\n' > "$JWT_KEY_FILE"
                 fi
                 chmod 600 "$JWT_KEY_FILE"
                 echo "✅ Fallback RSA public key generated"
