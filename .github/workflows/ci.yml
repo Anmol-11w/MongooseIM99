@@ -404,6 +404,24 @@ jobs:
             REDIS_GEN_BEFORE="$(get_generation "$REDIS_DEPLOY")"
             RMQ_GEN_BEFORE="$(get_generation "$RMQ_DEPLOY")"
 
+            # ✅ Deploy image via Helm first so deployment exists
+            echo "🚀 Deploying image: ghcr.io/pargat-tech/wingtrill-mongooseim:sha-${SHORT_SHA}"
+            helm upgrade --install mim ./helm/mongooseim \
+             --namespace "$MIM_NS" \
+             --cleanup-on-fail \
+             -f helm/mongooseim/values.yaml \
+             --set image.repository="ghcr.io/pargat-tech/wingtrill-mongooseim" \
+             --set image.tag="sha-${SHORT_SHA}" \
+             --set image.pullPolicy="Always" \
+             --set rabbitmqBackend.host="${RABBITMQ_HOST:-mim-mongooseim-rabbitmq}" \
+             --set rabbitmqBackend.port="${RABBITMQ_PORT:-5672}" \
+             --set rabbitmqBackend.username="${RABBITMQ_USER:-mongooseim}" \
+             --set rabbitmqBackend.password="${RABBITMQ_PASSWORD:-mongooseim_secret}" \
+             --set rabbitmqBackend.vhost="${RABBITMQ_VHOST:-mongooseim}" \
+             --set rabbitmq.username="${RABBITMQ_USER:-mongooseim}" \
+             --set rabbitmq.password="${RABBITMQ_PASSWORD:-mongooseim_secret}" \
+             --set rabbitmq.vhost="${RABBITMQ_VHOST:-mongooseim}"
+
             # ✅ Inject all secrets as env vars on the MongooseIM deployment
             echo "🔐 Injecting secrets as pod environment variables..."
             kubectl set env deployment/${APP_DEPLOY} -n "$MIM_NS" \
@@ -422,24 +440,6 @@ jobs:
               MIM_RABBITMQ_PASSWORD="${RABBITMQ_PASSWORD:-mongooseim_secret}" \
               MIM_RABBITMQ_VHOST="${RABBITMQ_VHOST:-mongooseim}"
             echo "✅ Secrets injected as env vars"
-
-            # ✅ Deploy new image via Helm
-            echo "🚀 Deploying image: ghcr.io/pargat-tech/wingtrill-mongooseim:sha-${SHORT_SHA}"
-            helm upgrade --install mim ./helm/mongooseim \
-             --namespace "$MIM_NS" \
-             --cleanup-on-fail \
-             -f helm/mongooseim/values.yaml \
-             --set image.repository="ghcr.io/pargat-tech/wingtrill-mongooseim" \
-             --set image.tag="sha-${SHORT_SHA}" \
-             --set image.pullPolicy="Always" \
-             --set rabbitmqBackend.host="${RABBITMQ_HOST:-mim-mongooseim-rabbitmq}" \
-             --set rabbitmqBackend.port="${RABBITMQ_PORT:-5672}" \
-             --set rabbitmqBackend.username="${RABBITMQ_USER:-mongooseim}" \
-             --set rabbitmqBackend.password="${RABBITMQ_PASSWORD:-mongooseim_secret}" \
-             --set rabbitmqBackend.vhost="${RABBITMQ_VHOST:-mongooseim}" \
-             --set rabbitmq.username="${RABBITMQ_USER:-mongooseim}" \
-             --set rabbitmq.password="${RABBITMQ_PASSWORD:-mongooseim_secret}" \
-             --set rabbitmq.vhost="${RABBITMQ_VHOST:-mongooseim}"
 
             # Force restart so new deployment.yaml startup script runs in pods
             echo "🔄 Restarting pods to apply new startup script..."
