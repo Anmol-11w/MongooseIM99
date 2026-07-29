@@ -1,4 +1,11 @@
-{{- if and .Values.rabbitmq.enabled .Values.rabbitmq.persistence.enabled }}
+{{- $enabled := false -}}
+{{- if and .Values.rabbitmq .Values.rabbitmq.persistence -}}
+  {{- $enabled = .Values.rabbitmq.persistence.enabled -}}
+{{- else if .Values.rabbitmqPersistence -}}
+  {{- $enabled = .Values.rabbitmqPersistence.enabled -}}
+{{- end -}}
+
+{{- if $enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -11,8 +18,8 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: {{ .Values.rabbitmq.persistence.size }}
-  {{- if .Values.rabbitmq.persistence.storageClass }}
+      storage: {{ default "1Gi" (dig "rabbitmq" "persistence" "size" (dig "rabbitmqPersistence" "size" "1Gi" .Values) .Values) }}
+  {{- if and .Values.rabbitmq .Values.rabbitmq.persistence .Values.rabbitmq.persistence.storageClass }}
   storageClassName: {{ .Values.rabbitmq.persistence.storageClass }}
   {{- end }}
 {{- end }}

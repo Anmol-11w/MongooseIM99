@@ -75,6 +75,10 @@ rabbitmq:
   username: "mongooseim"
   password: "mongooseim_secret"
   vhost: "mongooseim"
+  persistence:
+    enabled: false
+    size: 1Gi
+    storageClass: "local-path"
   resources:
     requests:
       cpu: "100m"
@@ -160,6 +164,11 @@ postgresqlPersistence:
 
 redisPersistence:
   enabled: true
+  size: 1Gi
+  storageClass: "local-path"
+
+rabbitmqPersistence:
+  enabled: false
   size: 1Gi
   storageClass: "local-path"
 
