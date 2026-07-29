@@ -373,6 +373,7 @@ jobs:
             APP_DEPLOY="mim-mongooseim"
             PG_DEPLOY="mim-mongooseim-postgresql"
             REDIS_DEPLOY="mim-mongooseim-redis"
+            RMQ_DEPLOY="mim-mongooseim-rabbitmq"
 
             # ✅ Validate all required secrets are present before doing anything
             MISSING=""
@@ -396,6 +397,7 @@ jobs:
 
             PG_GEN_BEFORE="$(get_generation "$PG_DEPLOY")"
             REDIS_GEN_BEFORE="$(get_generation "$REDIS_DEPLOY")"
+            RMQ_GEN_BEFORE="$(get_generation "$RMQ_DEPLOY")"
 
             # ✅ Inject all secrets as env vars on the MongooseIM deployment
             echo "🔐 Injecting secrets as pod environment variables..."
@@ -432,9 +434,10 @@ jobs:
             fi
             echo "✅ Rollout complete"
 
-            # ✅ Verify PostgreSQL and Redis deployments were NOT changed
+            # ✅ Verify PostgreSQL, Redis, and RabbitMQ deployments were NOT changed
             PG_GEN_AFTER="$(get_generation "$PG_DEPLOY")"
             REDIS_GEN_AFTER="$(get_generation "$REDIS_DEPLOY")"
+            RMQ_GEN_AFTER="$(get_generation "$RMQ_DEPLOY")"
 
             if [[ "$PG_GEN_BEFORE" != "$PG_GEN_AFTER" ]]; then
               echo "❌ PostgreSQL deployment changed unexpectedly! (${PG_GEN_BEFORE} -> ${PG_GEN_AFTER})"
@@ -446,7 +449,12 @@ jobs:
               exit 1
             fi
 
-            echo "✅ PostgreSQL and Redis deployments unchanged"
+            if [[ "$RMQ_GEN_BEFORE" != "$RMQ_GEN_AFTER" && "$RMQ_GEN_BEFORE" != "absent" ]]; then
+              echo "❌ RabbitMQ deployment changed unexpectedly! (${RMQ_GEN_BEFORE} -> ${RMQ_GEN_AFTER})"
+              exit 1
+            fi
+
+            echo "✅ Backend deployments (PostgreSQL, Redis, RabbitMQ) unchanged"
             echo ""
             echo "✅ Deployment complete!"
             echo ""
