@@ -4,6 +4,7 @@ erlang:
   nodePrefix: "mongooseim"
   cookie: "mongooseim"
   distPort: 52100
+  distPortMax: 52200
 image:
   repository: ghcr.io/anmol-11w/mongooseim99
   tag: "latest"
@@ -50,7 +51,7 @@ rabbitmq:
   persistence:
     enabled: true
     size: 1Gi
-    storageClass: ""
+    storageClass: "local-path"
 
 redis:
   enabled: true
@@ -81,7 +82,7 @@ postgresql:
   persistence:
     enabled: true
     size: 1Gi
-    storageClass: ""
+    storageClass: "local-path"
 
 imagePullSecrets:
   - name: ghcr-secret
@@ -156,12 +157,12 @@ extraVolumeMounts: []
 postgresqlPersistence:
   enabled: true
   size: 1Gi
-  storageClass: ""
+  storageClass: "local-path"
 
 redisPersistence:
   enabled: true
   size: 1Gi
-  storageClass: ""
+  storageClass: "local-path"
 
 nodeSelector: {}
 tolerations: []

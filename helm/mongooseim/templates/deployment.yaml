@@ -84,8 +84,8 @@ spec:
               ERLANG_NODE_PREFIX="{{ .Values.erlang.nodePrefix }}"
               ERLANG_NODE="${ERLANG_NODE_PREFIX}@${NODE_HOST}"
               ERLANG_COOKIE="$(sanitize_single_line "${MIM_ERLANG_COOKIE:-{{ .Values.erlang.cookie }}}")"
-              ERLANG_DIST_PORT_MIN="$(sanitize_single_line "${MIM_ERLANG_DIST_PORT:-{{ .Values.erlang.distPort }}}")"
-              ERLANG_DIST_PORT_MAX="$(sanitize_single_line "${MIM_ERLANG_DIST_PORT_MAX:-{{ .Values.erlang.distPortMax }}}")"
+              ERLANG_DIST_PORT_MIN="$(sanitize_single_line "${MIM_ERLANG_DIST_PORT:-{{ .Values.erlang.distPort | default 52100 }}}")"
+              ERLANG_DIST_PORT_MAX="$(sanitize_single_line "${MIM_ERLANG_DIST_PORT_MAX:-{{ .Values.erlang.distPortMax | default 52200 }}}")"
 
               if [[ ! "$ERLANG_DIST_PORT_MIN" =~ ^[0-9]+$ || ! "$ERLANG_DIST_PORT_MAX" =~ ^[0-9]+$ ]]; then
                 echo "❌ FATAL: Erlang distribution ports must be numeric"
