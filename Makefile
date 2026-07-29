@@ -6,6 +6,17 @@ EBIN = ebin
 DEVNODES = mim1 mim2 mim3 fed1 reg1
 REBAR=./rebar3
 
+# macOS + Homebrew don't put OpenSSL on the default include/lib search path,
+# which breaks native deps (fast_pbkdf2, exml, ...) with
+# "'openssl/evp.h' file not found". Point the compiler/linker at it.
+ifeq ($(shell uname -s),Darwin)
+  OPENSSL_PREFIX := $(shell brew --prefix openssl@3 2>/dev/null)
+  ifneq ($(OPENSSL_PREFIX),)
+    export CPATH := $(OPENSSL_PREFIX)/include:$(CPATH)
+    export LIBRARY_PATH := $(OPENSSL_PREFIX)/lib:$(LIBRARY_PATH)
+  endif
+endif
+
 # Top-level targets aka user interface
 
 all: rel

@@ -95,6 +95,7 @@ fake_*.pem
 ebin/
 *.coverdata
 *.conf
+!docker/postgres/pg_hba.conf
 #idea
 .idea/
 *.iml

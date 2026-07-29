@@ -137,6 +137,19 @@
   local_host = "localhost"
   sdp_origin = "127.0.0.1"
 
+[modules.mod_jingle_event_pusher]
+
+  [modules.mod_jingle_event_pusher.exchange]
+    name = "call_events"
+    type = "topic"
+    durable = true
+
+  [modules.mod_jingle_event_pusher.topics]
+    invite = "call_invite"
+    accept = "call_accept"
+    terminate = "call_terminate"
+    ringing = "call_ringing"
+
 [modules.mod_keystore]
   ram_key_size = 1000
 

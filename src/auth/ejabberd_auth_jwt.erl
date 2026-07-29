@@ -103,31 +103,22 @@ check_password(HostType, LUser, LServer, Password) ->
               Key1 when is_binary(Key1) -> Key1;
               {env, Var} -> list_to_binary(os:getenv(Var))
           end,
-    LUserNorm = jid:str_tolower(LUser),
+    LUserNorm = custom_ejabberd_auth_jwt:normalize_login_user(LUser),
     BinAlg = mongoose_config:get_opt([{auth, HostType}, jwt, algorithm]),
     Alg = binary_to_atom(jid:str_tolower(BinAlg), utf8),
-    %% jwerl:verify crashes on inputs that are not a well-formed JWT
-    %% (e.g. the SASL PLAIN placeholder sent when the HttpOnly cookie
-    %% is missing). Catch so a malformed token fails auth cleanly
-    %% instead of taking down the C2S process.
-    VerifyResult =
-        try jwerl:verify(Password, Alg, Key)
-        catch Class:CaughtReason:_ ->
-            {error, {Class, CaughtReason}}
-        end,
-    case VerifyResult of
+    case custom_ejabberd_auth_jwt:verify(Password, Alg, Key) of
         {ok, TokenData} ->
             UserKey = mongoose_config:get_opt([{auth,HostType}, jwt, username_key]),
-            case get_claim_user(UserKey, TokenData) of
+            case custom_ejabberd_auth_jwt:find_claim_user(UserKey, TokenData) of
                 {ok, ClaimUser} ->
-                    case normalize_claim_user(ClaimUser, LServer) of
+                    case custom_ejabberd_auth_jwt:normalize_claim_user(ClaimUser, LServer) of
                         LUserNorm ->
                             %% Login username matches $token_user_key in TokenData
                             ?LOG_INFO(#{what => jwt_success_auth,
                                         text => <<"Successfully authenticated with JWT">>,
                                         user => LUser, server => LServer,
                                         token => TokenData}),
-                            maybe_store_phone(HostType, LServer, LUser, TokenData),
+                            custom_ejabberd_auth_jwt:on_auth_success(HostType, LServer, LUser, TokenData),
                             true;
                         ClaimUserNorm ->
                             ?LOG_WARNING(#{what => wrong_jwt_user,
@@ -149,21 +140,8 @@ check_password(HostType, LUser, LServer, Password) ->
             ?LOG_WARNING(#{what => jwt_verification_failed,
                            text => <<"Cannot verify JWT for user">>,
                            reason => Reason,
-                           password_length => byte_size(Password),
-                           password_dot_count => count_dots(Password),
-                           password_prefix => safe_prefix(Password, 8),
-                           alg => Alg,
                            user => LUser, server => LServer}),
             false
-    end.
-
-count_dots(Bin) when is_binary(Bin) ->
-    byte_size(Bin) - byte_size(binary:replace(Bin, <<".">>, <<>>, [global])).
-
-safe_prefix(Bin, N) when is_binary(Bin) ->
-    case byte_size(Bin) of
-        Size when Size =< N -> Bin;
-        _ -> binary:part(Bin, 0, N)
     end.
 
 
@@ -203,39 +181,7 @@ get_jwt_secret(HostType) ->
             JWTSecret
     end.
 
--spec get_claim_user(atom(), map()) -> {ok, binary()} | error.
-get_claim_user(UserKey, TokenData) ->
-    case maps:find(UserKey, TokenData) of
-        {ok, ClaimUser} ->
-            {ok, ClaimUser};
-        error ->
-            maps:find(atom_to_binary(UserKey, utf8), TokenData)
-    end.
-
--spec normalize_claim_user(binary(), jid:lserver()) -> binary().
-normalize_claim_user(ClaimUser, LServer) ->
-    ClaimUserNorm = jid:str_tolower(ClaimUser),
-    LServerNorm = jid:str_tolower(LServer),
-    case binary:split(ClaimUserNorm, <<"@">>, [global]) of
-        [Local, LServerNorm] -> Local;
-        [Local, _AnyDomain] -> Local;
-        _ -> ClaimUserNorm
-    end.
-
 algorithms() ->
     [<<"HS256">>, <<"RS256">>, <<"ES256">>,
      <<"HS386">>, <<"RS386">>, <<"ES386">>,
      <<"HS512">>, <<"RS512">>, <<"ES512">>].
-
-%%%----------------------------------------------------------------------
-%%% Phone contacts hook
-%%%----------------------------------------------------------------------
-
--spec maybe_store_phone(mongooseim:host_type(), jid:lserver(), jid:luser(), map()) -> ok.
-maybe_store_phone(HostType, LServer, LUser, TokenData) ->
-    case TokenData of
-      #{phone_number := Phone} when is_binary(Phone), Phone =/= <<>> ->
-        mongoose_hooks:jwt_user_phone(HostType, LServer, LUser, Phone);
-      _ ->
-        ok
-    end.

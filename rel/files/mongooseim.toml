@@ -1,5 +1,5 @@
 [general]
-  loglevel = "info"
+  loglevel = "warning"
   hosts = [{{{hosts}}}]
   host_types = [{{{host_types}}}]
   default_server_domain = {{{default_server_domain}}}
@@ -172,13 +172,26 @@
 
   [outgoing_pools.rdbms.default.connection]
     driver = "pgsql"
-    host = {{{rdbms_host}}}
-    database = {{{rdbms_database}}}
-    username = {{{rdbms_username}}}
-    password = {{{rdbms_password}}}
-    tls.required = true
-    tls.cacertfile = "priv/ssl/cacert.pem"
-    tls.server_name_indication.enabled = false
+    port = 5433
+    host = "localhost"
+    database = "mongooseim"
+    username = "mongooseim"
+    password = "mongooseim_secret"
+    tls.required = false
+    tls.verify_mode = "none"
+
+[outgoing_pools.rabbit.event_pusher]
+  scope = "global"
+  workers = 5
+
+  [outgoing_pools.rabbit.event_pusher.connection]
+    host = "localhost"
+    port = 5673
+    username = "mongooseim"
+    password = "secret"
+    virtual_host = "mongooseim"
+    confirms_enabled = true
+
 {{/outgoing_pools}}
 
 [services.service_bosh]
@@ -203,6 +216,21 @@
 
 [modules.mod_adhoc]
 
+[modules.mod_event_pusher.rabbit]
+  # durable = true on all three: wingtrill-notifier declares its consumed
+  # exchange as durable, and RabbitMQ rejects redeclaring an existing
+  # exchange with a different durability (PRECONDITION_FAILED).
+  presence_exchange.name = "presence"
+  presence_exchange.durable = true
+  chat_msg_exchange.name = "chat_msg"
+  chat_msg_exchange.durable = true
+  chat_msg_exchange.sent_topic = "chat_msg_sent"
+  chat_msg_exchange.recv_topic = "chat_msg_recv"
+  groupchat_msg_exchange.name = "groupchat_msg"
+  groupchat_msg_exchange.durable = true
+  groupchat_msg_exchange.sent_topic = "groupchat_msg_sent"
+  groupchat_msg_exchange.recv_topic = "groupchat_msg_recv"
+
 # [services.service_traffic]
 
 {{#mod_amp}}
@@ -220,6 +248,22 @@
 [modules.mod_last]
 {{{mod_last}}}
 {{/mod_last}}
+{{#mod_last_seen}}
+[modules.mod_last_seen]
+{{{mod_last_seen}}}
+{{/mod_last_seen}}
+{{#mod_user_privacy}}
+[modules.mod_user_privacy]
+{{{mod_user_privacy}}}
+{{/mod_user_privacy}}
+{{#mod_broadcast}}
+[modules.mod_broadcast]
+{{{mod_broadcast}}}
+{{/mod_broadcast}}
+{{#mod_channel}}
+[modules.mod_channel]
+{{{mod_channel}}}
+{{/mod_channel}}
 [modules.mod_offline_stub]
 
 [modules.mod_mam]
@@ -228,9 +272,14 @@
   [modules.mod_mam.pm]
     archive_chat_markers = true
 
+  [modules.mod_mam.muc]
+    host = "muclight.@HOST@"
+
 [modules.mod_inbox]
   backend = "rdbms"
   reset_markers = ["displayed"]
+
+[modules.mod_inbox_mute_pusher]
 
 [modules.mod_ping]
   send_pings = true
@@ -285,12 +334,29 @@
   backend="rdbms"
   add_to_roster = true
 
+[modules.mod_email_sync]
+  backend="rdbms"
+  add_to_roster = true
+
+[modules.mod_muc_light]
+  backend = "rdbms"
+
 [modules.mod_jingle]
+
+[modules.mod_jingle_event_pusher]
+
+  [modules.mod_jingle_event_pusher.exchange]
+    name = "call_events"
+    type = "topic"
+    # wingtrill-notifier declares this exchange as durable; RabbitMQ
+    # rejects redeclaring an existing exchange with a different
+    # durability (PRECONDITION_FAILED), so this must match.
+    durable = true
 
 [modules.mod_ai_bot]
   provider = "openai"
   pool_tag = "ai_bot"
-  api_key = "{{{ai_bot_api_key}}}"
+  api_key = "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"
   bot_username = "assistant"
   model = "gpt-4o"
   max_tokens = 8192
@@ -298,13 +364,45 @@
 
 [modules.mod_ai_bot_call]
   pool_tag = "ai_bot"
-  api_key = "{{{ai_bot_api_key}}}"
+  api_key = "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"
   bot_username = "assistant"
   model = "gpt-4o-realtime-preview"
   voice = "alloy"
   temperature = 0.8
   max_response_output_tokens = 4096
   call_prompt = "You are a professional customer service agent. Answer questions clearly and concisely. Keep responses brief (2-3 sentences) since this is a real-time voice call. Use natural conversational language."
+
+[modules.mod_caps]
+
+[modules.mod_pubsub]
+  ignore_pep_from_offline = true
+  backend = "rdbms"
+  last_item_cache = "rdbms"
+  plugins = ["flat", "pep", "push"]
+  default_node_config = {access_model = "open"}
+  iqdisc.type = "queues"
+  iqdisc.workers = 50
+  wpool.workers = 10
+
+  [[modules.mod_pubsub.pep_mapping]]
+    namespace = "http://jabber.org/protocol/nick"
+    node = "nick"
+
+  [[modules.mod_pubsub.pep_mapping]]
+    namespace = "urn:xmpp:avatar:metadata"
+    node = "avatar_metadata"
+
+[modules.mod_http_upload]
+  host = "upload.@HOST@"
+  backend = "s3"
+  expiration_time = 120
+  max_file_size = 80428800
+
+[modules.mod_http_upload.s3]
+  bucket_url = "https://upload-files-opa.s3.ca-central-1.amazonaws.com"
+  region = "ca-central-1"
+  access_key_id = "AKIA5WWR24YGL3CXLNOI"
+  secret_access_key = "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"
 
 {{{instrumentation}}}
 
@@ -355,6 +453,10 @@
   ]
 
   register = [
+    {acl = "all", value = "allow"}
+  ]
+
+  pubsub_createnode = [
     {acl = "all", value = "allow"}
   ]
 
