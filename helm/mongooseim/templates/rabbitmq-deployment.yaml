@@ -1,70 +1,473 @@
-{{- if .Values.rabbitmq.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "mongooseim.fullname" . }}-rabbitmq
+  name: {{ include "mongooseim.fullname" . }}
   labels:
     {{- include "mongooseim.labels" . | nindent 4 }}
-    app.kubernetes.io/component: rabbitmq
 spec:
-  replicas: 1
+  replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
       {{- include "mongooseim.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: rabbitmq
   template:
     metadata:
       labels:
         {{- include "mongooseim.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: rabbitmq
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "mongooseim.serviceAccountName" . }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
-        - name: rabbitmq
-          image: {{ .Values.rabbitmq.image }}
-          imagePullPolicy: {{ .Values.rabbitmq.imagePullPolicy }}
+        - name: mongooseim
+          image: {{ include "mongooseim.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if or .Values.postgresqlBackend.enabled .Values.redisBackend.enabled }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              set -e
+              # Read config rendered into the image from rel/files/mongooseim.toml.
+              CONF_SRC="/etc/mongooseim/mongooseim.toml"
+              CONF="/etc/mongooseim/mongooseim.toml"
+              VM_ARGS="/etc/mongooseim/vm.args"
+              VM_DIST_ARGS="/etc/mongooseim/vm.dist.args"
+              JWT_KEY_FILE="/var/lib/mongooseim/jwt_public_key.pem"
+              sanitize_single_line() {
+                printf '%s' "$1" | tr -d '\r\n'
+              }
+              escape_toml_string() {
+                printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+              }
 
-          env:
-            - name: RABBITMQ_DEFAULT_USER
-              value: {{ .Values.rabbitmq.username | quote }}
-            - name: RABBITMQ_DEFAULT_PASS
-              value: {{ .Values.rabbitmq.password | quote }}
-            - name: RABBITMQ_DEFAULT_VHOST
-              value: {{ .Values.rabbitmq.vhost | quote }}
+              if [[ ! -f "$CONF_SRC" ]]; then
+                echo "❌ FATAL: source config not found at $CONF_SRC"
+                exit 1
+              fi
+              if [[ ! -f "$VM_ARGS" ]]; then
+                echo "❌ FATAL: vm args not found at $VM_ARGS"
+                exit 1
+              fi
+              if [[ ! -f "$VM_DIST_ARGS" ]]; then
+                echo "❌ FATAL: vm dist args not found at $VM_DIST_ARGS"
+                exit 1
+              fi
 
+              export EJABBERD_CONFIG_PATH="$CONF"
+              echo "Using source config: $CONF_SRC"
+              echo "Using EJABBERD_CONFIG_PATH=$EJABBERD_CONFIG_PATH"
+
+              NODE_HOST="$(sanitize_single_line "${POD_IP:-}")"
+              if [[ -z "$NODE_HOST" ]]; then
+                NODE_HOST="$(hostname -i | awk '{print $1}')"
+              fi
+              if [[ -z "$NODE_HOST" ]]; then
+                echo "❌ FATAL: unable to determine node host for Erlang distribution"
+                exit 1
+              fi
+
+              ERLANG_NODE_PREFIX="{{ .Values.erlang.nodePrefix }}"
+              ERLANG_NODE="${ERLANG_NODE_PREFIX}@${NODE_HOST}"
+              ERLANG_COOKIE="$(sanitize_single_line "${MIM_ERLANG_COOKIE:-{{ .Values.erlang.cookie }}}")"
+              ERLANG_DIST_PORT_MIN="$(sanitize_single_line "${MIM_ERLANG_DIST_PORT:-{{ .Values.erlang.distPort }}}")"
+              ERLANG_DIST_PORT_MAX="$(sanitize_single_line "${MIM_ERLANG_DIST_PORT_MAX:-{{ .Values.erlang.distPortMax }}}")"
+
+              if [[ ! "$ERLANG_DIST_PORT_MIN" =~ ^[0-9]+$ || ! "$ERLANG_DIST_PORT_MAX" =~ ^[0-9]+$ ]]; then
+                echo "❌ FATAL: Erlang distribution ports must be numeric"
+                exit 1
+              fi
+              if (( ERLANG_DIST_PORT_MIN > ERLANG_DIST_PORT_MAX )); then
+                echo "❌ FATAL: Erlang distribution min port must be <= max port"
+                exit 1
+              fi
+
+              echo "🧩 Configuring Erlang node: $ERLANG_NODE"
+              sed -E -i \
+                -e '/^-s?name[[:space:]]+/d' \
+                -e '/^-setcookie[[:space:]]+/d' \
+                "$VM_ARGS"
+              printf -- "-name %s\n-setcookie %s\n" "$ERLANG_NODE" "$ERLANG_COOKIE" >> "$VM_ARGS"
+
+              if [[ -f "$VM_DIST_ARGS" ]]; then
+                sed -E -i '/^-kernel[[:space:]]+inet_dist_listen_(min|max)[[:space:]]+[0-9]+$/d' "$VM_DIST_ARGS"
+                printf -- "-kernel inet_dist_listen_min %s\n-kernel inet_dist_listen_max %s\n" \
+                  "$ERLANG_DIST_PORT_MIN" "$ERLANG_DIST_PORT_MAX" >> "$VM_DIST_ARGS"
+              fi
+              echo "✅ Erlang distribution configured"
+
+              # Keep default cert paths for local/dev.
+              sed -E -i \
+                -e 's|^([[:space:]]*)tls\.certfile[[:space:]]*=.*|\1tls.certfile = "priv/ssl/fake_cert.pem"|' \
+                -e 's|^([[:space:]]*)tls\.keyfile[[:space:]]*=.*|\1tls.keyfile = "priv/ssl/fake_key.pem"|' \
+                "$CONF"
+
+              # For production, allow real PEM values to be provided via env secrets,
+              # but keep the same cert/key paths in config.
+              if [[ -n "${MIM_TLS_CERT_PEM:-}" || -n "${MIM_TLS_KEY_PEM:-}" ]]; then
+                if [[ -z "${MIM_TLS_CERT_PEM:-}" || -z "${MIM_TLS_KEY_PEM:-}" ]]; then
+                  echo "❌ FATAL: both MIM_TLS_CERT_PEM and MIM_TLS_KEY_PEM must be set together"
+                  exit 1
+                fi
+                echo "🔐 Writing TLS cert/key from environment secrets"
+                mkdir -p priv/ssl
+                printf '%s' "${MIM_TLS_CERT_PEM}" | sed 's/\\\\n/\n/g' > priv/ssl/fake_cert.pem
+                printf '%s' "${MIM_TLS_KEY_PEM}" | sed 's/\\\\n/\n/g' > priv/ssl/fake_key.pem
+                chmod 644 priv/ssl/fake_cert.pem
+                chmod 600 priv/ssl/fake_key.pem
+                echo "✅ TLS cert/key files updated at priv/ssl/fake_cert.pem and priv/ssl/fake_key.pem"
+              fi
+
+              # =========================================================
+              # STEP 1: Patch XMPP host if provided
+              # =========================================================
+              XMPP_HOST_CLEAN="$(sanitize_single_line "${MIM_XMPP_HOST:-}")"
+              if [[ -n "$XMPP_HOST_CLEAN" ]]; then
+                echo "🌐 Patching XMPP host to: $XMPP_HOST_CLEAN"
+                awk -v xmpp_host="$XMPP_HOST_CLEAN" '
+                  BEGIN { in_general = 0 }
+                  /^\[general\]/ { in_general = 1; print; next }
+                  in_general && /^\[/ { in_general = 0 }
+                  in_general && /^[[:space:]]*hosts[[:space:]]*=.*/ {
+                    printf "  hosts = [\"%s\"]\n", xmpp_host
+                    next
+                  }
+                  in_general && /^[[:space:]]*default_server_domain[[:space:]]*=.*/ {
+                    printf "  default_server_domain = \"%s\"\n", xmpp_host
+                    next
+                  }
+                  { print }
+                ' "$CONF" > "${CONF}.new"
+                mv "${CONF}.new" "$CONF"
+                echo "✅ XMPP host patched"
+              fi
+
+              {{- if and (gt (int .Values.replicaCount) 1) .Values.redisBackend.enabled }}
+              SM_BACKEND_CLEAN="$(sanitize_single_line "${MIM_SM_BACKEND:-redis}")"
+              {{- else }}
+              SM_BACKEND_CLEAN="$(sanitize_single_line "${MIM_SM_BACKEND:-}")"
+              {{- end }}
+              if [[ -n "$SM_BACKEND_CLEAN" ]]; then
+                echo "🧠 Patching sm_backend to: $SM_BACKEND_CLEAN"
+                awk -v sm_backend="$SM_BACKEND_CLEAN" '
+                  BEGIN { in_general = 0; sm_written = 0 }
+                  /^\[general\]/ { in_general = 1; print; next }
+                  in_general && /^\[/ {
+                    if (sm_written == 0) {
+                      printf "  sm_backend = \"%s\"\n", sm_backend
+                    }
+                    in_general = 0
+                    print
+                    next
+                  }
+                  in_general && /^[[:space:]]*sm_backend[[:space:]]*=.*/ {
+                    printf "  sm_backend = \"%s\"\n", sm_backend
+                    sm_written = 1
+                    next
+                  }
+                  { print }
+                  END {
+                    if (in_general && sm_written == 0) {
+                      printf "  sm_backend = \"%s\"\n", sm_backend
+                    }
+                  }
+                ' "$CONF" > "${CONF}.new"
+                mv "${CONF}.new" "$CONF"
+                echo "✅ sm_backend patched"
+              fi
+
+              # =========================================================
+              # STEP 2: Ensure source contains AI bot module sections
+              # =========================================================
+              if ! grep -Eq '^\[modules\.mod_ai_bot\]' "$CONF"; then
+                echo "❌ FATAL: [modules.mod_ai_bot] missing in source config"
+                echo "   Update rel/files/mongooseim.toml and deploy a new image"
+                exit 1
+              fi
+              if ! grep -Eq '^\[modules\.mod_ai_bot_call\]' "$CONF"; then
+                echo "❌ FATAL: [modules.mod_ai_bot_call] missing in source config"
+                echo "   Update rel/files/mongooseim.toml and deploy a new image"
+                exit 1
+              fi
+
+              # =========================================================
+              # STEP 3: Patch AI bot API keys from environment secret (optional)
+              # =========================================================
+              AI_BOT_API_KEY_CLEAN="$(sanitize_single_line "${MIM_AI_BOT_API_KEY:-}")"
+              if [[ -n "$AI_BOT_API_KEY_CLEAN" ]]; then
+                echo "🤖 Injecting AI bot API key from MIM_AI_BOT_API_KEY"
+
+                AI_BOT_API_KEY_ESCAPED="$(escape_toml_string "$AI_BOT_API_KEY_CLEAN")"
+                awk -v api_key="$AI_BOT_API_KEY_ESCAPED" '
+                  BEGIN { in_ai_bot = 0; in_ai_bot_call = 0 }
+                  /^\[modules\.mod_ai_bot\]/ { in_ai_bot = 1; in_ai_bot_call = 0; print; next }
+                  /^\[modules\.mod_ai_bot_call\]/ { in_ai_bot_call = 1; in_ai_bot = 0; print; next }
+                  /^\[/ { in_ai_bot = 0; in_ai_bot_call = 0 }
+                  (in_ai_bot || in_ai_bot_call) && /^[[:space:]]*api_key[[:space:]]*=.*/ {
+                    printf "  api_key = \"%s\"\n", api_key
+                    next
+                  }
+                  { print }
+                ' "$CONF" > "${CONF}.new"
+                mv "${CONF}.new" "$CONF"
+                echo "✅ AI bot API key injected"
+              fi
+
+              # =========================================================
+              # STEP 4: Replace entire [auth] block with clean JWT-only config
+              # =========================================================
+              echo "🔐 Rewriting [auth] section for JWT-only authentication..."
+              awk '
+                BEGIN { in_auth = 0; auth_written = 0 }
+                /^\[auth\]/ {
+                  in_auth = 1
+                  next
+                }
+                in_auth && /^\[auth\./ {
+                  next
+                }
+                in_auth && /^\[/ {
+                  if (auth_written == 0) {
+                    print "[auth]"
+                    print "  methods = [\"jwt\"]"
+                    print "  sasl_mechanisms = [\"plain\"]"
+                    print ""
+                    auth_written = 1
+                  }
+                  in_auth = 0
+                  print
+                  next
+                }
+                in_auth { next }
+                { print }
+                END {
+                  if (auth_written == 0) {
+                    print "[auth]"
+                    print "  methods = [\"jwt\"]"
+                    print "  sasl_mechanisms = [\"plain\"]"
+                    print ""
+                  }
+                }
+              ' "$CONF" > "${CONF}.new"
+              mv "${CONF}.new" "$CONF"
+              echo "✅ [auth] rewritten — all password backends removed"
+
+              # =========================================================
+              # STEP 5: Write JWT public key to file and inject [auth.jwt]
+              # RSA public keys must be written to a file, not inline value
+              # =========================================================
+              if [[ -z "${MIM_JWT_PUBLIC_KEY:-}" ]]; then
+                echo "❌ FATAL: MIM_JWT_PUBLIC_KEY env var is not set!"
+                exit 1
+              fi
+
+              echo "🔑 Writing JWT public key to file: $JWT_KEY_FILE"
+              # Handle both literal \n and real newlines in the key
+              echo "${MIM_JWT_PUBLIC_KEY}" | sed 's/\\\\n/\n/g' > "$JWT_KEY_FILE"
+              chmod 600 "$JWT_KEY_FILE"
+              echo "✅ JWT public key file written"
+
+              echo "🔑 Injecting [auth.jwt] section with secret.file..."
+              printf '\n[auth.jwt]\n  secret.file = "%s"\n  algorithm = "RS256"\n  username_key = "sub"\n' \
+                "$JWT_KEY_FILE" >> "$CONF"
+              echo "✅ JWT config injected"
+
+              {{- if .Values.postgresqlBackend.enabled }}
+              # =========================================================
+              # STEP 6: Wait for PostgreSQL and inject DB config
+              # =========================================================
+              PG_HOST="${MIM_DB_HOST:-{{ .Values.postgresqlBackend.host }}}"
+              PG_PORT="${MIM_DB_PORT:-{{ .Values.postgresqlBackend.port }}}"
+              PG_DATABASE="${MIM_DB_NAME:-{{ .Values.postgresqlBackend.database }}}"
+              PG_USERNAME="${MIM_DB_USER:-{{ .Values.postgresqlBackend.username }}}"
+              PG_PASSWORD="${MIM_DB_PASSWORD:-{{ .Values.postgresqlBackend.password }}}"
+              PG_HOST="$(sanitize_single_line "$PG_HOST")"
+              PG_PORT="$(sanitize_single_line "$PG_PORT")"
+              PG_DATABASE="$(sanitize_single_line "$PG_DATABASE")"
+              PG_USERNAME="$(sanitize_single_line "$PG_USERNAME")"
+              PG_PASSWORD="$(sanitize_single_line "$PG_PASSWORD")"
+
+              echo "🐘 Waiting for PostgreSQL at $PG_HOST:$PG_PORT..."
+              for i in $(seq 1 120); do
+                (echo > /dev/tcp/${PG_HOST}/${PG_PORT}) >/dev/null 2>&1 && break
+                echo "  waiting... ($i/120)"
+                sleep 1
+              done
+              echo "✅ PostgreSQL is reachable"
+
+              awk '
+                BEGIN { skip = 0 }
+                /^\[outgoing_pools\.rdbms\.default(\.|\])/ { skip = 1 }
+                skip && /^\[/ && $0 !~ /^\[outgoing_pools\.rdbms\.default(\.|\])/ { skip = 0 }
+                !skip { print }
+              ' "$CONF" > "${CONF}.new"
+              mv "${CONF}.new" "$CONF"
+
+              printf '\n[outgoing_pools.rdbms.default]\n  scope = "global"\n  workers = 5\n\n  [outgoing_pools.rdbms.default.connection]\n    driver = "pgsql"\n    host = "%s"\n    port = %s\n    database = "%s"\n    username = "%s"\n    password = "%s"\n' \
+                "$PG_HOST" "$PG_PORT" "$PG_DATABASE" "$PG_USERNAME" "$PG_PASSWORD" >> "$CONF"
+              echo "✅ PostgreSQL pool config injected"
+              {{- end }}
+
+              {{- if .Values.redisBackend.enabled }}
+              # =========================================================
+              # STEP 7: Wait for Redis and inject Redis config
+              # =========================================================
+              REDIS_HOST="${MIM_REDIS_HOST:-{{ .Values.redisBackend.host }}}"
+              REDIS_PORT="${MIM_REDIS_PORT:-{{ .Values.redisBackend.port }}}"
+              REDIS_DATABASE="${MIM_REDIS_DATABASE:-{{ .Values.redisBackend.database }}}"
+              REDIS_HOST="$(sanitize_single_line "$REDIS_HOST")"
+              REDIS_PORT="$(sanitize_single_line "$REDIS_PORT")"
+              REDIS_DATABASE="$(sanitize_single_line "$REDIS_DATABASE")"
+
+              echo "🔴 Waiting for Redis at $REDIS_HOST:$REDIS_PORT..."
+              for i in $(seq 1 120); do
+                (echo > /dev/tcp/${REDIS_HOST}/${REDIS_PORT}) >/dev/null 2>&1 && break
+                echo "  waiting... ($i/120)"
+                sleep 1
+              done
+              echo "✅ Redis is reachable"
+
+              awk '
+                BEGIN { skip = 0 }
+                /^\[outgoing_pools\.redis\.(default|global_distrib)(\.|\])/ { skip = 1 }
+                skip && /^\[/ && $0 !~ /^\[outgoing_pools\.redis\.(default|global_distrib)(\.|\])/ { skip = 0 }
+                !skip { print }
+              ' "$CONF" > "${CONF}.new"
+              mv "${CONF}.new" "$CONF"
+
+              printf '\n[outgoing_pools.redis.default]\n  scope = "global"\n  workers = 10\n\n  [outgoing_pools.redis.default.connection]\n    host = "%s"\n    port = %s\n    database = %s\n' \
+                "$REDIS_HOST" "$REDIS_PORT" "$REDIS_DATABASE" >> "$CONF"
+              {{- if .Values.redisBackend.username }}
+              printf '    username = "{{ .Values.redisBackend.username }}"\n' >> "$CONF"
+              {{- end }}
+              {{- if .Values.redisBackend.password }}
+              printf '    password = "{{ .Values.redisBackend.password }}"\n' >> "$CONF"
+              {{- end }}
+
+              printf '\n[outgoing_pools.redis.global_distrib]\n  scope = "global"\n  workers = 10\n\n  [outgoing_pools.redis.global_distrib.connection]\n    host = "%s"\n    port = %s\n    database = %s\n' \
+                "$REDIS_HOST" "$REDIS_PORT" "$REDIS_DATABASE" >> "$CONF"
+              {{- if .Values.redisBackend.username }}
+              printf '    username = "{{ .Values.redisBackend.username }}"\n' >> "$CONF"
+              {{- end }}
+              {{- if .Values.redisBackend.password }}
+              printf '    password = "{{ .Values.redisBackend.password }}"\n' >> "$CONF"
+              {{- end }}
+              echo "✅ Redis pools (default + global_distrib) injected"
+              {{- end }}
+
+              # =========================================================
+              # STEP 8: Final verification before startup
+              # =========================================================
+              echo ""
+              echo "📋 Final auth config:"
+              grep -A8 "^\[auth\]" "$CONF" || true
+              echo ""
+              echo "📋 JWT key file check:"
+              head -1 "$JWT_KEY_FILE"
+              tail -1 "$JWT_KEY_FILE"
+              echo ""
+
+              if ! grep -Eq '^[[:space:]]*methods[[:space:]]*=[[:space:]]*\["jwt"\]' "$CONF"; then
+                echo "❌ ABORT: methods = [\"jwt\"] not found!"
+                exit 1
+              fi
+              if ! grep -Eq '^\[auth\.jwt\]' "$CONF"; then
+                echo "❌ ABORT: [auth.jwt] section missing!"
+                exit 1
+              fi
+              if ! grep -Eq 'secret\.(value|file)[[:space:]]*=' "$CONF"; then
+                echo "❌ ABORT: JWT secret not set!"
+                exit 1
+              fi
+              if grep -Eq '^\[auth\.(internal|rdbms|ldap|external)\]' "$CONF"; then
+                echo "❌ ABORT: password-based auth backend still present!"
+                exit 1
+              fi
+
+              echo "✅ All config checks passed — starting MongooseIM..."
+              exec /usr/lib/mongooseim/bin/mongooseim foreground
+          {{- end }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
-            - name: amqp
-              containerPort: {{ .Values.rabbitmqBackend.port }}
+            - name: xmpp-client
+              containerPort: 5222
               protocol: TCP
-            - name: management
-              containerPort: 15672
+            - name: xmpp-server
+              containerPort: 5269
               protocol: TCP
-
-          volumeMounts:
-            - name: rabbitmq-data
-              mountPath: /var/lib/rabbitmq
-
+            - name: bosh
+              containerPort: 5280
+              protocol: TCP
+            - name: admin
+              containerPort: 8888
+              protocol: TCP
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MIM_ERLANG_COOKIE
+              value: {{ .Values.erlang.cookie | quote }}
+            - name: MIM_ERLANG_DIST_PORT
+              value: {{ .Values.erlang.distPort | quote }}
+            - name: MIM_ERLANG_DIST_PORT_MAX
+              value: {{ .Values.erlang.distPortMax | quote }}
+          {{- with .Values.env }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
           livenessProbe:
-            tcpSocket:
-              port: amqp
-            initialDelaySeconds: 60
-            periodSeconds: 15
-            timeoutSeconds: 5
-
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
           readinessProbe:
-            tcpSocket:
-              port: amqp
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-
-          {{- with .Values.rabbitmq.resources }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.extraContainers }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.extraVolumes }}
       volumes:
-        - name: rabbitmq-data
-          persistentVolumeClaim:
-            claimName: {{ include "mongooseim.fullname" . }}-rabbitmq-data
-
-{{- end }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

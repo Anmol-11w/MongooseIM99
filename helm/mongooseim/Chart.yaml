@@ -1,17 +1,18 @@
-apiVersion: v2
-name: mongooseim
-description: A Helm chart for MongooseIM – a scalable, distributed XMPP server
-type: application
-version: 0.1.0
-appVersion: "6.3.0"
-keywords:
-  - xmpp
-  - messaging
-  - erlang
-  - mongooseim
-home: https://mongooseim.readthedocs.io
-sources:
-  - https://github.com/esl/MongooseIM
-maintainers:
-  - name: MongooseIM contributors
-    url: https://github.com/esl/MongooseIM
+{{- if and .Values.rabbitmq.enabled .Values.rabbitmq.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mongooseim.fullname" . }}-rabbitmq-data
+  labels:
+    {{- include "mongooseim.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rabbitmq
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.rabbitmq.persistence.size }}
+  {{- if .Values.rabbitmq.persistence.storageClass }}
+  storageClassName: {{ .Values.rabbitmq.persistence.storageClass }}
+  {{- end }}
+{{- end }}
