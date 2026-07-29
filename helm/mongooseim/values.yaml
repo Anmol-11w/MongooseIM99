@@ -1,3 +1,4 @@
+##
 replicaCount: 2
 
 erlang:
@@ -6,21 +7,10 @@ erlang:
   distPort: 52100
   distPortMax: 52200
 
-rabbitmqBackend:
-  enabled: true
-  host: "mim-mongooseim-rabbitmq"
-  port: 5672
-  username: "mongooseim"
-  password: "mongooseim_secret"
-  vhost: "mongooseim"
-
-redisBackend:
-  enabled: true
-  host: "mim-mongooseim-redis"
-  port: 6379
-  database: 0
-  username: ""
-  password: ""
+image:
+  repository: ghcr.io/pargat-tech/wingtrill-mongooseim
+  tag: "latest"
+  pullPolicy: Always
 
 postgresqlBackend:
   enabled: true
@@ -30,24 +20,33 @@ postgresqlBackend:
   username: "mongooseim"
   password: "mongooseim_secret"
 
-rabbitmq:
+postgresql:
   enabled: true
-  image: rabbitmq:3.13-management
+  image: postgres:16
   imagePullPolicy: IfNotPresent
+  rootPassword: "secret"
+  database: "mongooseim"
   username: "mongooseim"
   password: "mongooseim_secret"
-  vhost: "mongooseim"
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "128Mi"
-    limits:
-      cpu: "500m"
-      memory: "256Mi"
   persistence:
     enabled: true
-    size: 1Gi
-    storageClass: ""
+    size: 5Gi
+    storageClass: "local-path"
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "512Mi"
+
+redisBackend:
+  enabled: true
+  host: "mim-mongooseim-redis"
+  port: 6379
+  database: 0
+  username: ""
+  password: ""
 
 redis:
   enabled: true
@@ -61,13 +60,21 @@ redis:
       cpu: "500m"
       memory: "256Mi"
 
-postgresql:
+rabbitmqBackend:
   enabled: true
-  image: postgres:16
-  imagePullPolicy: IfNotPresent
-  database: "mongooseim"
+  host: "mim-mongooseim-rabbitmq"
+  port: 5672
   username: "mongooseim"
   password: "mongooseim_secret"
+  vhost: "mongooseim"
+
+rabbitmq:
+  enabled: true
+  image: rabbitmq:3-management
+  imagePullPolicy: IfNotPresent
+  username: "mongooseim"
+  password: "mongooseim_secret"
+  vhost: "mongooseim"
   resources:
     requests:
       cpu: "100m"
@@ -75,10 +82,6 @@ postgresql:
     limits:
       cpu: "500m"
       memory: "256Mi"
-  persistence:
-    enabled: true
-    size: 1Gi
-    storageClass: ""
 
 imagePullSecrets:
   - name: ghcr-secret
@@ -153,12 +156,12 @@ extraVolumeMounts: []
 postgresqlPersistence:
   enabled: true
   size: 1Gi
-  storageClass: ""
+  storageClass: "local-path"
 
 redisPersistence:
   enabled: true
   size: 1Gi
-  storageClass: ""
+  storageClass: "local-path"
 
 nodeSelector: {}
 tolerations: []

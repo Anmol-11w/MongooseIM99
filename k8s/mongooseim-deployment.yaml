@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: mongooseim
-          image: ghcr.io/jaspreet-android/wingtrill-mongooseim:latest
+          image: ghcr.io/pargat-tech/wingtrill-mongooseim:latest
           imagePullPolicy: Always
           ports:
             - name: xmpp-client
