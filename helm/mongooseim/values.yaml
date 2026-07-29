@@ -8,7 +8,7 @@ erlang:
   distPortMax: 52200
 
 image:
-  repository: ghcr.io/jaspreet-android/wingtrill-mongooseim
+  repository: ghcr.io/Pargat-tech/Wingtrill-mongooseim
   tag: "latest"
   pullPolicy: Always
 

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ CI ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -263,7 +263,7 @@ jobs:
           echo "sha_tag=${IMAGE}:sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "run_tag=${IMAGE}:run-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "branch_tag=${IMAGE}:${BRANCH_TAG}" >> "$GITHUB_OUTPUT"
-          if [[ "${GITHUB_REF_NAME}" == "master" ]]; then
+          if [[ "${GITHUB_REF_NAME}" == "main" || "${GITHUB_REF_NAME}" == "master" ]]; then
             echo "latest_tag=${IMAGE}:latest" >> "$GITHUB_OUTPUT"
           else
             echo "latest_tag=" >> "$GITHUB_OUTPUT"
@@ -329,7 +329,7 @@ jobs:
     name: Deploy to production
     runs-on: ubuntu-22.04
     needs: docker_image
-    if: github.ref_name == 'CI'
+    if: github.ref_name == 'main'
 
     steps:
       - name: Deploy via SSH
@@ -412,7 +412,7 @@ jobs:
             helm upgrade --install mim ./helm/mongooseim \
              --namespace "$MIM_NS" \
              -f helm/mongooseim/values.yaml \
-             --set image.repository="ghcr.io/jaspreet-android/wingtrill-mongooseim" \
+             --set image.repository="ghcr.io/Pargat-tech/Wingtrill-mongooseim" \
              --set image.tag="sha-${SHORT_SHA}" \
              --set image.pullPolicy="Always"
 
@@ -456,7 +456,7 @@ jobs:
     name: Deploy monitoring stack
     runs-on: ubuntu-22.04
     needs: docker_image
-    if: github.ref_name == 'CI'
+    if: github.ref_name == 'main'
 
     steps:
       - uses: actions/checkout@v4
