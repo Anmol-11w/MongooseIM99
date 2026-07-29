@@ -6,6 +6,9 @@ trap 'rm -f ~/.rpmmacros' EXIT
 PACKAGE_NAME=$(find . -maxdepth 1 -type f \( -name "*.deb" -o -name "*.rpm" \))
 
 echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --pinentry-mode loopback --import
+mkdir -p ~/.gnupg
+echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+gpgconf --kill gpg-agent
 
 GPG_KEY_ID=$(gpg --list-keys --with-colons | grep '^pub' | cut -d':' -f5)
 if [ -z "$GPG_KEY_ID" ]; then
@@ -21,7 +24,7 @@ if [[ "$PACKAGE_NAME" == *.deb ]]; then
     gpg --import public.key
     rm -f public.key
 
-    GPG_OPTS="--no-tty --pinentry-mode loopback"
+    GPG_OPTS="--batch --no-tty --pinentry-mode loopback"
     if [ -n "$GPG_PASS" ]; then
         GPG_OPTS="$GPG_OPTS --passphrase $GPG_PASS"
     fi
