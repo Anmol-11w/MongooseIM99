@@ -427,7 +427,7 @@ jobs:
             echo "🚀 Deploying image: ghcr.io/pargat-tech/wingtrill-mongooseim:sha-${SHORT_SHA}"
             helm upgrade --install mim ./helm/mongooseim \
              --namespace "$MIM_NS" \
-             --force \
+             --cleanup-on-fail \
              -f helm/mongooseim/values.yaml \
              --set image.repository="ghcr.io/pargat-tech/wingtrill-mongooseim" \
              --set image.tag="sha-${SHORT_SHA}" \

@@ -31,7 +31,7 @@ postgresql:
   persistence:
     enabled: true
     size: 5Gi
-    storageClass: ""
+    storageClass: "local-path"
   resources:
     requests:
       cpu: "250m"
@@ -156,12 +156,12 @@ extraVolumeMounts: []
 postgresqlPersistence:
   enabled: true
   size: 1Gi
-  storageClass: ""
+  storageClass: "local-path"
 
 redisPersistence:
   enabled: true
   size: 1Gi
-  storageClass: ""
+  storageClass: "local-path"
 
 nodeSelector: {}
 tolerations: []
