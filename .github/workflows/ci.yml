@@ -337,16 +337,16 @@ jobs:
         env:
           SHORT_SHA: ${{ github.sha }}
           DEPLOY_REF: ${{ github.ref_name }}
-          DB_HOST: ${{ secrets.MIM_DB_HOST }}
-          DB_PORT: ${{ secrets.MIM_DB_PORT }}
-          DB_NAME: ${{ secrets.MIM_DB_NAME }}
-          DB_USER: ${{ secrets.MIM_DB_USER }}
-          DB_PASSWORD: ${{ secrets.MIM_DB_PASSWORD }}
-          XMPP_HOST: ${{ secrets.MIM_XMPP_HOST }}
-          JWT_PUBLIC_KEY: ${{ secrets.MIM_JWT_PUBLIC_KEY }}
-          AI_BOT_API_KEY: ${{ secrets.MIM_AI_BOT_API_KEY }}
-          TLS_CERT_PEM: ${{ secrets.MIM_TLS_CERT_PEM }}
-          TLS_KEY_PEM: ${{ secrets.MIM_TLS_KEY_PEM }}
+          DB_HOST: ${{ secrets.MIM_DB_HOST || secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.MIM_DB_PORT || secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.MIM_DB_NAME || secrets.DB_NAME }}
+          DB_USER: ${{ secrets.MIM_DB_USER || secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.MIM_DB_PASSWORD || secrets.DB_PASSWORD }}
+          XMPP_HOST: ${{ secrets.MIM_XMPP_HOST || secrets.XMPP_HOST }}
+          JWT_PUBLIC_KEY: ${{ secrets.MIM_JWT_PUBLIC_KEY || secrets.JWT_PUBLIC_KEY }}
+          AI_BOT_API_KEY: ${{ secrets.MIM_AI_BOT_API_KEY || secrets.AI_BOT_API_KEY }}
+          TLS_CERT_PEM: ${{ secrets.MIM_TLS_CERT_PEM || secrets.TLS_CERT_PEM }}
+          TLS_KEY_PEM: ${{ secrets.MIM_TLS_KEY_PEM || secrets.TLS_KEY_PEM }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -373,7 +373,6 @@ jobs:
             [[ -z "$DB_HOST" ]]        && MISSING="$MISSING DB_HOST"
             [[ -z "$DB_PASSWORD" ]]    && MISSING="$MISSING DB_PASSWORD"
             [[ -z "$JWT_PUBLIC_KEY" ]] && MISSING="$MISSING JWT_PUBLIC_KEY"
-            [[ -z "$AI_BOT_API_KEY" ]] && MISSING="$MISSING AI_BOT_API_KEY"
             [[ -z "$XMPP_HOST" ]]      && MISSING="$MISSING XMPP_HOST"
             [[ -z "$TLS_CERT_PEM" ]]   && MISSING="$MISSING TLS_CERT_PEM"
             [[ -z "$TLS_KEY_PEM" ]]    && MISSING="$MISSING TLS_KEY_PEM"
