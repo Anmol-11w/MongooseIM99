@@ -204,11 +204,11 @@ is_muted(HostType, To, From) ->
 -spec fetch_muted_until(mongooseim:host_type(), mod_inbox:entry_key()) -> integer().
 fetch_muted_until(HostType, Key) ->
     case mod_inbox_backend:get_entry_properties(HostType, Key) of
-        #{muted_until := MutedUntil} when MutedUntil > 0 ->
+        #{muted_until := MutedUntil} = Props when MutedUntil > 0 ->
             case MutedUntil > erlang:system_time(microsecond) of
                 true -> MutedUntil;
                 false ->
-                    clear_expired_mute(HostType, Key),
+                    clear_expired_mute(HostType, Key, Props),
                     0
             end;
         _ ->
@@ -312,9 +312,10 @@ fetch_sender_phone(HostType, From) ->
 %% anything back on its own, so a lapsed mute would otherwise sit in the
 %% `inbox' row forever as stale data. Since we already fetched the row to
 %% check it, opportunistically reset it to `0' here too.
--spec clear_expired_mute(mongooseim:host_type(), mod_inbox:entry_key()) -> ok.
-clear_expired_mute(HostType, Key) ->
-    case mod_inbox_backend:set_entry_properties(HostType, Key, #{muted_until => 0}) of
+-spec clear_expired_mute(mongooseim:host_type(), mod_inbox:entry_key(),
+                         mod_inbox:entry_properties()) -> ok.
+clear_expired_mute(HostType, Key, Props) ->
+    case mod_inbox_backend:set_entry_properties(HostType, Key, Props#{muted_until => 0}) of
         {error, Reason} ->
             io:format("inbox_mute_pusher_clear_failed key=~p reason=~p~n", [Key, Reason]);
         _ ->
