@@ -407,7 +407,7 @@ jobs:
             echo "✅ Secrets injected as env vars"
 
             # ✅ Deploy new image via Helm
-            echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
+            echo "🚀 Deploying image: ghcr.io/Pargat-tech/Wingtrill-mongooseim:sha-${SHORT_SHA}"
             helm upgrade --install mim ./helm/mongooseim \
              --namespace "$MIM_NS" \
              -f helm/mongooseim/values.yaml \
