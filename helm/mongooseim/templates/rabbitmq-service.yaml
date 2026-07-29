@@ -1,53 +1,23 @@
 {{- if .Values.rabbitmq.enabled }}
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: v1
+kind: Service
 metadata:
   name: {{ include "mongooseim.fullname" . }}-rabbitmq
   labels:
     {{- include "mongooseim.labels" . | nindent 4 }}
     app.kubernetes.io/component: rabbitmq
 spec:
-  replicas: 1
+  type: {{ .Values.rabbitmq.serviceType | default "ClusterIP" }}
+  ports:
+    - name: amqp
+      port: {{ .Values.rabbitmqBackend.port }}
+      targetPort: amqp
+      protocol: TCP
+    - name: management
+      port: 15672
+      targetPort: management
+      protocol: TCP
   selector:
-    matchLabels:
-      {{- include "mongooseim.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: rabbitmq
-  template:
-    metadata:
-      labels:
-        {{- include "mongooseim.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: rabbitmq
-    spec:
-      containers:
-        - name: rabbitmq
-          image: {{ .Values.rabbitmq.image }}
-          imagePullPolicy: {{ .Values.rabbitmq.imagePullPolicy }}
-          env:
-            - name: RABBITMQ_DEFAULT_USER
-              value: {{ .Values.rabbitmq.username | quote }}
-            - name: RABBITMQ_DEFAULT_PASS
-              value: {{ .Values.rabbitmq.password | quote }}
-            - name: RABBITMQ_DEFAULT_VHOST
-              value: {{ .Values.rabbitmq.vhost | quote }}
-          ports:
-            - name: amqp
-              containerPort: {{ .Values.rabbitmqBackend.port }}
-              protocol: TCP
-            - name: management
-              containerPort: 15672
-              protocol: TCP
-          livenessProbe:
-            tcpSocket:
-              port: amqp
-            initialDelaySeconds: 20
-            periodSeconds: 15
-          readinessProbe:
-            tcpSocket:
-              port: amqp
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          {{- with .Values.rabbitmq.resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+    {{- include "mongooseim.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: rabbitmq
 {{- end }}
