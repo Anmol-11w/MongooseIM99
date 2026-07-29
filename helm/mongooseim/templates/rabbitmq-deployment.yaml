@@ -22,6 +22,7 @@ spec:
         - name: rabbitmq
           image: {{ .Values.rabbitmq.image }}
           imagePullPolicy: {{ .Values.rabbitmq.imagePullPolicy }}
+
           env:
             - name: RABBITMQ_DEFAULT_USER
               value: {{ .Values.rabbitmq.username | quote }}
@@ -29,6 +30,7 @@ spec:
               value: {{ .Values.rabbitmq.password | quote }}
             - name: RABBITMQ_DEFAULT_VHOST
               value: {{ .Values.rabbitmq.vhost | quote }}
+
           ports:
             - name: amqp
               containerPort: {{ .Values.rabbitmqBackend.port }}
@@ -36,18 +38,33 @@ spec:
             - name: management
               containerPort: 15672
               protocol: TCP
+
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+
           livenessProbe:
             tcpSocket:
               port: amqp
-            initialDelaySeconds: 20
+            initialDelaySeconds: 60
             periodSeconds: 15
+            timeoutSeconds: 5
+
           readinessProbe:
             tcpSocket:
               port: amqp
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 10
+            timeoutSeconds: 5
+
           {{- with .Values.rabbitmq.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+
+      volumes:
+        - name: rabbitmq-data
+          persistentVolumeClaim:
+            claimName: {{ include "mongooseim.fullname" . }}-rabbitmq-data
+
 {{- end }}
