@@ -160,17 +160,9 @@ jobs:
             REDIS_GEN_BEFORE="$(get_generation "$REDIS_DEPLOY")"
             RMQ_GEN_BEFORE="$(get_generation "$RMQ_DEPLOY")"
 
-            # ✅ Pre-clean unmanaged deployments to prevent Helm selector/ownership conflicts
-            echo "🧹 Ensuring clean state for MongooseIM and RabbitMQ deployments..."
-            kubectl delete deployment "${RMQ_DEPLOY}" -n "$MIM_NS" --ignore-not-found=true
-            if ! kubectl get deployment "${APP_DEPLOY}" -n "$MIM_NS" -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}' 2>/dev/null | grep -q 'mim'; then
-              echo "🧹 Removing unmanaged deployment ${APP_DEPLOY} to allow Helm ownership..."
-              kubectl delete deployment "${APP_DEPLOY}" -n "$MIM_NS" --ignore-not-found=true
-            fi
-
-            # ✅ Deploy image via Helm first so deployment exists
+            # ✅ Deploy image via Helm with automatic release recovery fallback
             echo "🚀 Deploying image: ghcr.io/anmol-11w/mongooseim99:sha-${SHORT_SHA}"
-            helm upgrade --install mim ./helm/mongooseim \
+            if ! helm upgrade --install mim ./helm/mongooseim \
              --namespace "$MIM_NS" \
              --cleanup-on-fail \
              -f helm/mongooseim/values.yaml \
@@ -184,7 +176,25 @@ jobs:
              --set rabbitmqBackend.vhost="${RABBITMQ_VHOST:-mongooseim}" \
              --set rabbitmq.username="${RABBITMQ_USER:-mongooseim}" \
              --set rabbitmq.password="${RABBITMQ_PASSWORD:-mongooseim_secret}" \
-             --set rabbitmq.vhost="${RABBITMQ_VHOST:-mongooseim}"
+             --set rabbitmq.vhost="${RABBITMQ_VHOST:-mongooseim}"; then
+              echo "⚠️ Helm release encountered tracking sync error. Resetting release tracking..."
+              helm uninstall mim -n "$MIM_NS" 2>/dev/null || true
+              kubectl delete deployment "${APP_DEPLOY}" "${RMQ_DEPLOY}" -n "$MIM_NS" 2>/dev/null || true
+              helm upgrade --install mim ./helm/mongooseim \
+               --namespace "$MIM_NS" \
+               -f helm/mongooseim/values.yaml \
+               --set image.repository="ghcr.io/anmol-11w/mongooseim99" \
+               --set image.tag="sha-${SHORT_SHA}" \
+               --set image.pullPolicy="Always" \
+               --set rabbitmqBackend.host="${RABBITMQ_HOST:-mim-mongooseim-rabbitmq}" \
+               --set rabbitmqBackend.port="${RABBITMQ_PORT:-5672}" \
+               --set rabbitmqBackend.username="${RABBITMQ_USER:-mongooseim}" \
+               --set rabbitmqBackend.password="${RABBITMQ_PASSWORD:-mongooseim_secret}" \
+               --set rabbitmqBackend.vhost="${RABBITMQ_VHOST:-mongooseim}" \
+               --set rabbitmq.username="${RABBITMQ_USER:-mongooseim}" \
+               --set rabbitmq.password="${RABBITMQ_PASSWORD:-mongooseim_secret}" \
+               --set rabbitmq.vhost="${RABBITMQ_VHOST:-mongooseim}"
+            fi
 
             # ✅ Inject all secrets as env vars on the MongooseIM deployment
             echo "🔐 Injecting secrets as pod environment variables..."
