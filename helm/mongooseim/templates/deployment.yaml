@@ -370,6 +370,28 @@ spec:
               {{- end }}
 
               # =========================================================
+              # STEP 7.5: Patch RabbitMQ pool from env secrets
+              # =========================================================
+              RMQ_HOST_VAL="${MIM_RABBITMQ_HOST:-mim-mongooseim-rabbitmq}"
+              RMQ_PORT_VAL="${MIM_RABBITMQ_PORT:-5672}"
+              RMQ_USER_VAL="${MIM_RABBITMQ_USER:-mongooseim}"
+              RMQ_PASS_VAL="${MIM_RABBITMQ_PASSWORD:-mongooseim_secret}"
+              RMQ_VHOST_VAL="${MIM_RABBITMQ_VHOST:-mongooseim}"
+
+              echo "🐰 Patching RabbitMQ connection ($RMQ_HOST_VAL:$RMQ_PORT_VAL)..."
+              awk '
+                BEGIN { skip = 0 }
+                /^\[outgoing_pools\.rabbit\.event_pusher(\.|\])/ { skip = 1 }
+                skip && /^\[/ && $0 !~ /^\[outgoing_pools\.rabbit\.event_pusher(\.|\])/ { skip = 0 }
+                !skip { print }
+              ' "$CONF" > "${CONF}.new"
+              mv "${CONF}.new" "$CONF"
+
+              printf '\n[outgoing_pools.rabbit.event_pusher]\n  scope = "global"\n  workers = 5\n\n  [outgoing_pools.rabbit.event_pusher.connection]\n    host = "%s"\n    port = %s\n    username = "%s"\n    password = "%s"\n    virtual_host = "%s"\n    confirms_enabled = true\n' \
+                "$RMQ_HOST_VAL" "$RMQ_PORT_VAL" "$RMQ_USER_VAL" "$RMQ_PASS_VAL" "$RMQ_VHOST_VAL" >> "$CONF"
+              echo "✅ RabbitMQ event_pusher pool patched"
+
+              # =========================================================
               # STEP 8: Final verification before startup
               # =========================================================
               echo ""

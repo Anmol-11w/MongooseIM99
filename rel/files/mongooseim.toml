@@ -186,9 +186,9 @@
 
   [outgoing_pools.rabbit.event_pusher.connection]
     host = "mim-mongooseim-rabbitmq"
-    port = 5673
+    port = 5672
     username = "mongooseim"
-    password = "secret"
+    password = "mongooseim_secret"
     virtual_host = "mongooseim"
     confirms_enabled = true
 
