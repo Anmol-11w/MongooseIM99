@@ -1,5 +1,8 @@
 replicaCount: 2
 
+xmppHost: ""
+jwtPublicKey: ""
+
 erlang:
   nodePrefix: "mongooseim"
   cookie: "mongooseim"

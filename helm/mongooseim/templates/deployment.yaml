@@ -153,6 +153,9 @@ spec:
                   { print }
                 ' "$CONF" > "${CONF}.new"
                 mv "${CONF}.new" "$CONF"
+
+                # Replace @HOST@ placeholders throughout config for submodules (muc, upload, etc.)
+                sed -i "s/@HOST@/${XMPP_HOST_CLEAN}/g" "$CONF"
                 echo "✅ XMPP host patched"
               fi
 
@@ -397,6 +400,42 @@ spec:
               echo "✅ RabbitMQ event_pusher pool patched"
 
               # =========================================================
+              # STEP 7.6: Patch S3 config from env secrets if provided
+              # =========================================================
+              if [[ -n "${MIM_S3_BUCKET_URL:-}" ]]; then
+                echo "🪣 Patching S3 http_upload configuration..."
+                S3_BUCKET_VAL="$(sanitize_single_line "${MIM_S3_BUCKET_URL}")"
+                S3_REGION_VAL="$(sanitize_single_line "${MIM_S3_REGION:-}")"
+                S3_KEY_VAL="$(sanitize_single_line "${MIM_S3_ACCESS_KEY_ID:-}")"
+                S3_SEC_VAL="$(sanitize_single_line "${MIM_S3_SECRET_ACCESS_KEY:-}")"
+
+                awk -v bucket="$S3_BUCKET_VAL" -v region="$S3_REGION_VAL" -v key="$S3_KEY_VAL" -v secret="$S3_SEC_VAL" '
+                  BEGIN { in_s3 = 0 }
+                  /^\[modules\.mod_http_upload\.s3\]/ { in_s3 = 1; print; next }
+                  in_s3 && /^\[/ { in_s3 = 0 }
+                  in_s3 && /^[[:space:]]*bucket_url[[:space:]]*=.*/ {
+                    printf "  bucket_url = \"%s\"\n", bucket
+                    next
+                  }
+                  in_s3 && /^[[:space:]]*region[[:space:]]*=.*/ {
+                    printf "  region = \"%s\"\n", region
+                    next
+                  }
+                  in_s3 && /^[[:space:]]*access_key_id[[:space:]]*=.*/ {
+                    printf "  access_key_id = \"%s\"\n", key
+                    next
+                  }
+                  in_s3 && /^[[:space:]]*secret_access_key[[:space:]]*=.*/ {
+                    printf "  secret_access_key = \"%s\"\n", secret
+                    next
+                  }
+                  { print }
+                ' "$CONF" > "${CONF}.new"
+                mv "${CONF}.new" "$CONF"
+                echo "✅ S3 configuration patched"
+              fi
+
+              # =========================================================
               # STEP 8: Final verification before startup
               # =========================================================
               echo ""
@@ -456,6 +495,61 @@ spec:
               value: {{ .Values.erlang.distPort | quote }}
             - name: MIM_ERLANG_DIST_PORT_MAX
               value: {{ .Values.erlang.distPortMax | quote }}
+            {{- if .Values.xmppHost }}
+            - name: MIM_XMPP_HOST
+              value: {{ .Values.xmppHost | quote }}
+            {{- end }}
+            {{- if .Values.postgresqlBackend.host }}
+            - name: MIM_DB_HOST
+              value: {{ .Values.postgresqlBackend.host | quote }}
+            {{- end }}
+            {{- if .Values.postgresqlBackend.port }}
+            - name: MIM_DB_PORT
+              value: {{ .Values.postgresqlBackend.port | quote }}
+            {{- end }}
+            {{- if .Values.postgresqlBackend.database }}
+            - name: MIM_DB_NAME
+              value: {{ .Values.postgresqlBackend.database | quote }}
+            {{- end }}
+            {{- if .Values.postgresqlBackend.username }}
+            - name: MIM_DB_USER
+              value: {{ .Values.postgresqlBackend.username | quote }}
+            {{- end }}
+            {{- if .Values.postgresqlBackend.password }}
+            - name: MIM_DB_PASSWORD
+              value: {{ .Values.postgresqlBackend.password | quote }}
+            {{- end }}
+            {{- if .Values.redisBackend.host }}
+            - name: MIM_REDIS_HOST
+              value: {{ .Values.redisBackend.host | quote }}
+            {{- end }}
+            {{- if .Values.redisBackend.port }}
+            - name: MIM_REDIS_PORT
+              value: {{ .Values.redisBackend.port | quote }}
+            {{- end }}
+            {{- if .Values.rabbitmqBackend.host }}
+            - name: MIM_RABBITMQ_HOST
+              value: {{ .Values.rabbitmqBackend.host | quote }}
+            {{- end }}
+            {{- if .Values.rabbitmqBackend.port }}
+            - name: MIM_RABBITMQ_PORT
+              value: {{ .Values.rabbitmqBackend.port | quote }}
+            {{- end }}
+            {{- if .Values.rabbitmqBackend.username }}
+            - name: MIM_RABBITMQ_USER
+              value: {{ .Values.rabbitmqBackend.username | quote }}
+            {{- end }}
+            {{- if .Values.rabbitmqBackend.password }}
+            - name: MIM_RABBITMQ_PASSWORD
+              value: {{ .Values.rabbitmqBackend.password | quote }}
+            {{- end }}
+            {{- if .Values.rabbitmqBackend.vhost }}
+            - name: MIM_RABBITMQ_VHOST
+              value: {{ .Values.rabbitmqBackend.vhost | quote }}
+            {{- end }}
+            - name: MIM_JWT_PUBLIC_KEY
+              value: {{ .Values.jwtPublicKey | default "" | quote }}
+            {{- end }}
           {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}

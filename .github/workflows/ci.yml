@@ -204,6 +204,7 @@ jobs:
     name: xref on OTP ${{ matrix.otp }}
     runs-on: ubuntu-22.04
     strategy:
+      
       matrix:
         otp: [ '27.3.4.2' ]
 
@@ -334,6 +335,8 @@ jobs:
           DB_NAME: ${{ secrets.MIM_DB_NAME || secrets.DB_NAME }}
           DB_USER: ${{ secrets.MIM_DB_USER || secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.MIM_DB_PASSWORD || secrets.DB_PASSWORD }}
+          REDIS_HOST: ${{ secrets.MIM_REDIS_HOST || secrets.REDIS_HOST }}
+          REDIS_PORT: ${{ secrets.MIM_REDIS_PORT || secrets.REDIS_PORT }}
           XMPP_HOST: ${{ secrets.MIM_XMPP_HOST || secrets.XMPP_HOST }}
           JWT_PUBLIC_KEY: ${{ secrets.MIM_JWT_PUBLIC_KEY || secrets.JWT_PUBLIC_KEY }}
           TLS_CERT_PEM: ${{ secrets.MIM_TLS_CERT_PEM || secrets.TLS_CERT_PEM }}
@@ -343,6 +346,7 @@ jobs:
           RABBITMQ_USER: ${{ secrets.MIM_RABBITMQ_USER || secrets.RABBITMQ_USER }}
           RABBITMQ_PASSWORD: ${{ secrets.MIM_RABBITMQ_PASSWORD || secrets.RABBITMQ_PASSWORD }}
           RABBITMQ_VHOST: ${{ secrets.MIM_RABBITMQ_VHOST || secrets.RABBITMQ_VHOST }}
+          AI_BOT_API_KEY: ${{ secrets.MIM_AI_BOT_API_KEY }}
           S3_BUCKET_URL: ${{ secrets.MIM_S3_BUCKET_URL || secrets.S3_BUCKET_URL }}
           S3_REGION: ${{ secrets.MIM_S3_REGION || secrets.S3_REGION }}
           S3_ACCESS_KEY_ID: ${{ secrets.MIM_S3_ACCESS_KEY_ID || secrets.S3_ACCESS_KEY_ID }}
@@ -351,7 +355,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,XMPP_HOST,JWT_PUBLIC_KEY,TLS_CERT_PEM,TLS_KEY_PEM,RABBITMQ_HOST,RABBITMQ_PORT,RABBITMQ_USER,RABBITMQ_PASSWORD,RABBITMQ_VHOST,S3_BUCKET_URL,S3_REGION,S3_ACCESS_KEY_ID,S3_SECRET_ACCESS_KEY
+          envs: SHORT_SHA,DEPLOY_REF,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,REDIS_HOST,REDIS_PORT,XMPP_HOST,JWT_PUBLIC_KEY,TLS_CERT_PEM,TLS_KEY_PEM,RABBITMQ_HOST,RABBITMQ_PORT,RABBITMQ_USER,RABBITMQ_PASSWORD,RABBITMQ_VHOST,AI_BOT_API_KEY,S3_BUCKET_URL,S3_REGION,S3_ACCESS_KEY_ID,S3_SECRET_ACCESS_KEY
           script: |
             set -euo pipefail
 
@@ -403,12 +407,21 @@ jobs:
              --set image.repository="ghcr.io/anmol-11w/mongooseim99" \
              --set image.tag="latest" \
              --set image.pullPolicy="Always" \
+             --set xmppHost="${XMPP_HOST}" \
+             --set postgresqlBackend.host="${DB_HOST}" \
+             --set postgresqlBackend.port="${DB_PORT:-5432}" \
+             --set postgresqlBackend.database="${DB_NAME}" \
+             --set postgresqlBackend.username="${DB_USER}" \
+             --set postgresqlBackend.password="${DB_PASSWORD}" \
+             --set redisBackend.host="${REDIS_HOST:-mim-mongooseim-redis}" \
+             --set redisBackend.port="${REDIS_PORT:-6379}" \
              --set rabbitmqBackend.host="${RABBITMQ_HOST:-mim-mongooseim-rabbitmq}" \
              --set rabbitmqBackend.port="${RABBITMQ_PORT:-5672}" \
              --set rabbitmqBackend.username="${RABBITMQ_USER:-mongooseim}" \
              --set rabbitmqBackend.password="${RABBITMQ_PASSWORD:-mongooseim_secret}" \
              --set rabbitmqBackend.vhost="${RABBITMQ_VHOST:-mongooseim}" \
              --set rabbitmq.username="${RABBITMQ_USER:-mongooseim}" \
+             --set jwtPublicKey="${JWT_PUBLIC_KEY}" \
              --set rabbitmq.password="${RABBITMQ_PASSWORD:-mongooseim_secret}" \
              --set rabbitmq.vhost="${RABBITMQ_VHOST:-mongooseim}"; then
               echo "⚠️ Helm release encountered tracking sync error. Resetting release tracking..."
@@ -420,6 +433,15 @@ jobs:
                --set image.repository="ghcr.io/anmol-11w/mongooseim99" \
                --set image.tag="latest" \
                --set image.pullPolicy="Always" \
+               --set xmppHost="${XMPP_HOST}" \
+               --set jwtPublicKey="${JWT_PUBLIC_KEY}" \
+               --set postgresqlBackend.host="${DB_HOST}" \
+               --set postgresqlBackend.port="${DB_PORT:-5432}" \
+               --set postgresqlBackend.database="${DB_NAME}" \
+               --set postgresqlBackend.username="${DB_USER}" \
+               --set postgresqlBackend.password="${DB_PASSWORD}" \
+               --set redisBackend.host="${REDIS_HOST:-mim-mongooseim-redis}" \
+               --set redisBackend.port="${REDIS_PORT:-6379}" \
                --set rabbitmqBackend.host="${RABBITMQ_HOST:-mim-mongooseim-rabbitmq}" \
                --set rabbitmqBackend.port="${RABBITMQ_PORT:-5672}" \
                --set rabbitmqBackend.username="${RABBITMQ_USER:-mongooseim}" \
@@ -438,6 +460,8 @@ jobs:
               MIM_DB_NAME="${DB_NAME}" \
               MIM_DB_USER="${DB_USER}" \
               MIM_DB_PASSWORD="${DB_PASSWORD}" \
+              MIM_REDIS_HOST="${REDIS_HOST:-mim-mongooseim-redis}" \
+              MIM_REDIS_PORT="${REDIS_PORT:-6379}" \
               MIM_XMPP_HOST="${XMPP_HOST}" \
               MIM_JWT_PUBLIC_KEY="${JWT_PUBLIC_KEY}" \
               MIM_TLS_CERT_PEM="${TLS_CERT_PEM}" \
@@ -447,6 +471,7 @@ jobs:
               MIM_RABBITMQ_USER="${RABBITMQ_USER:-mongooseim}" \
               MIM_RABBITMQ_PASSWORD="${RABBITMQ_PASSWORD:-mongooseim_secret}" \
               MIM_RABBITMQ_VHOST="${RABBITMQ_VHOST:-mongooseim}" \
+              MIM_AI_BOT_API_KEY="${AI_BOT_API_KEY:-}" \
               MIM_S3_BUCKET_URL="${S3_BUCKET_URL:-}" \
               MIM_S3_REGION="${S3_REGION:-}" \
               MIM_S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID:-}" \
